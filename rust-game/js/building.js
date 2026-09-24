@@ -16,11 +16,12 @@ export const PIECES = {
 export const PIECE_ORDER = ['foundation', 'wall', 'doorway', 'floor', 'stairs'];
 
 export const TIERS = [
-  { name: 'Солома', cost: { wood: 50 }, color: 0xc9a872 },
-  { name: 'Дерево', cost: { wood: 200 }, color: 0x8b5a2b },
-  { name: 'Камень', cost: { stones: 300 }, color: 0xa3a19a },
-  { name: 'Металл', cost: { metal_frag: 200 }, color: 0x6a737a },
+  { name: 'Солома', cost: { wood: 50 }, color: 0xc9a872, hp: 20 },
+  { name: 'Дерево', cost: { wood: 200 }, color: 0x8b5a2b, hp: 250 },
+  { name: 'Камень', cost: { stones: 300 }, color: 0xa3a19a, hp: 500 },
+  { name: 'Металл', cost: { metal_frag: 200 }, color: 0x6a737a, hp: 1000 },
 ];
+const DOOR_HP = 200;
 
 export const DEPLOY = {
   campfire: { name: 'Костёр', size: [1.1, 0.5, 1.1], collide: false, slots: 6, item: 'campfire' },
@@ -264,6 +265,7 @@ export class Building {
   // ---------- Добавление / удаление ----------
   addPiece(data) {
     const p = { kind: 'piece', type: data.type, x: data.x, y: data.y, z: data.z, rot: data.rot || 0, tier: data.tier || 0, open: !!data.open };
+    p.hp = data.hp !== undefined ? data.hp : p.type === 'door' ? DOOR_HP : TIERS[p.tier].hp;
     p.key = key(cat(p.type), p.x, p.y, p.z);
     if (this.occ.has(p.key)) return null;
     this.occ.set(p.key, p);
@@ -373,8 +375,24 @@ export class Building {
     const mult = PIECES[p.type].mult;
     if (!this.game.inv.take(t.cost, mult)) return 'Не хватает ресурсов';
     p.tier++;
+    p.hp = TIERS[p.tier].hp;
     this.buildPieceMesh(p);
     return null;
+  }
+
+  maxHp(p) {
+    return p.type === 'door' ? DOOR_HP : TIERS[p.tier].hp;
+  }
+
+  // Урон постройке (взрывы). Возвращает true, если разрушена.
+  damagePiece(p, dmg) {
+    if (!this.pieces.includes(p)) return false;
+    p.hp -= dmg;
+    if (p.hp <= 0) {
+      this.demolish(p);
+      return true;
+    }
+    return false;
   }
 
   place() {
@@ -592,7 +610,7 @@ export class Building {
 
   serialize() {
     return {
-      pieces: this.pieces.map((p) => ({ type: p.type, x: p.x, y: p.y, z: p.z, rot: p.rot, tier: p.tier, open: p.open })),
+      pieces: this.pieces.map((p) => ({ type: p.type, x: p.x, y: p.y, z: p.z, rot: p.rot, tier: p.tier, open: p.open, hp: p.hp })),
       deploys: this.deploys.map((d) => ({ type: d.type, x: d.x, y: d.y, z: d.z, rot: d.rot, on: d.on, items: d.inv.serialize() })),
     };
   }

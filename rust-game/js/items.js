@@ -54,12 +54,21 @@ export const ITEMS = {
   pistol_ammo: { name: 'Пистолетные патроны', icon: '🔸', stack: 128 },
   rifle_ammo: { name: 'Винтовочные патроны', icon: '🔶', stack: 128 },
   shells: { name: 'Дробовые патроны', icon: '🔴', stack: 64 },
+  double_barrel: { name: 'Двустволка', icon: '🔫', short: 'DB', model: 'double_barrel',
+    gun: { dmg: 15, pellets: 10, ammo: 'shells', mag: 2, rate: 0.28, reload: 3.0, spread: 0.09, range: 45, recoil: 0.08, snd: 'shotgun' } },
+  rocket_launcher: { name: 'Ракетница', icon: '🚀', short: 'RL', model: 'launcher',
+    launcher: { ammo: 'rocket', rate: 1.2, reload: 3.5, speed: 40 } },
+  rocket: { name: 'Ракета', icon: '🧨', stack: 3 },
+  explosive: { name: 'Взрывчатка', icon: '💣', stack: 100 },
   // --- броня ---
   wood_armor: { name: 'Деревянная броня', icon: '🛡️', short: 'WOOD', armor: { slot: 'chest', prot: 0.45 } },
   metal_chest: { name: 'Металлический нагрудник', icon: '🛡️', short: 'MET', armor: { slot: 'chest', prot: 0.72 } },
   bucket_helmet: { name: 'Шлем из ведра', icon: '🪣', armor: { slot: 'head', prot: 0.35 } },
   metal_helmet: { name: 'Металлический шлем', icon: '⛑️', armor: { slot: 'head', prot: 0.65 } },
   armored_pants: { name: 'Бронештаны', icon: '👖', armor: { slot: 'legs', prot: 0.45 } },
+  scrap_armor: { name: 'Броня из металлолома', icon: '🛡️', short: 'SCRP', armor: { slot: 'chest', prot: 0.58 } },
+  iron_mask: { name: 'Железная маска', icon: '🎭', armor: { slot: 'head', prot: 0.55 } },
+  hazmat: { name: 'Защитный костюм', icon: '🥼', short: 'HAZ', armor: { slot: 'chest', prot: 0.3, full: true, rad: 1 } },
   hammer: { name: 'Киянка', icon: '🔨', model: 'hammer', special: 'hammer' },
   plan: { name: 'План постройки', icon: '📐', model: 'plan', special: 'plan' },
   // --- размещаемое ---
@@ -97,6 +106,13 @@ export const RECIPES = [
   { out: 'armored_pants', n: 1, time: 6, cat: 'Броня', cost: { cloth: 40, metal_frag: 60 } },
   { out: 'metal_helmet', n: 1, time: 8, cat: 'Броня', cost: { metal_frag: 150, scrap: 30 } },
   { out: 'metal_chest', n: 1, time: 10, cat: 'Броня', cost: { metal_frag: 250, scrap: 50, cloth: 30 } },
+  { out: 'scrap_armor', n: 1, time: 8, cat: 'Броня', cost: { metal_frag: 150, scrap: 20, cloth: 25 } },
+  { out: 'iron_mask', n: 1, time: 6, cat: 'Броня', cost: { metal_frag: 100, cloth: 10 } },
+  { out: 'hazmat', n: 1, time: 10, cat: 'Броня', cost: { cloth: 80, scrap: 40, metal_frag: 40 } },
+  { out: 'double_barrel', n: 1, time: 8, cat: 'Оружие', cost: { metal_frag: 150, wood: 100, pipe: 2 } },
+  { out: 'rocket_launcher', n: 1, time: 25, cat: 'Оружие', cost: { metal_frag: 500, scrap: 200, pipe: 4 } },
+  { out: 'explosive', n: 1, time: 3, cat: 'Боеприпасы', cost: { gunpowder: 50, metal_frag: 10, sulfur: 10 } },
+  { out: 'rocket', n: 1, time: 6, cat: 'Боеприпасы', cost: { explosive: 5, gunpowder: 40, pipe: 1 } },
   { out: 'torch', n: 1, time: 1, cat: 'Инструменты', cost: { wood: 20, cloth: 10 } },
   { out: 'arrow', n: 2, time: 1, cat: 'Боеприпасы', cost: { wood: 25, stones: 10 } },
   { out: 'gunpowder', n: 10, time: 2, cat: 'Боеприпасы', cost: { charcoal: 30, sulfur: 20 } },
@@ -120,6 +136,7 @@ export const LOOT = {
   ],
   crate: [
     [0.15, 'shells', 4, 10], [0.08, 'bucket_helmet', 1, 1], [0.06, 'wood_armor', 1, 1],
+    [0.08, 'hazmat', 1, 1], [0.05, 'double_barrel', 1, 1], [0.06, 'iron_mask', 1, 1],
     [0.9, 'scrap', 5, 10], [0.5, 'metal_frag', 25, 60], [0.3, 'pipe', 1, 2], [0.25, 'gunpowder', 10, 25],
     [0.3, 'pistol_ammo', 5, 12], [0.2, 'medkit', 1, 1], [0.25, 'arrow', 6, 12], [0.08, 'revolver', 1, 1],
     [0.1, 'metal_hatchet', 1, 1], [0.1, 'metal_pickaxe', 1, 1], [0.12, 'bow', 1, 1], [0.3, 'cloth', 10, 25],
@@ -129,11 +146,13 @@ export const LOOT = {
     [0.6, 'pistol_ammo', 10, 24], [0.4, 'medkit', 1, 2], [0.25, 'revolver', 1, 1],
     [0.4, 'rifle_ammo', 15, 40], [0.07, 'rifle', 1, 1], [0.05, 'bolt', 1, 1], [0.08, 'shotgun', 1, 1],
     [0.3, 'shells', 6, 16], [0.12, 'metal_helmet', 1, 1], [0.1, 'metal_chest', 1, 1], [0.15, 'armored_pants', 1, 1],
+    [0.15, 'hazmat', 1, 1], [0.06, 'rocket_launcher', 1, 1], [0.12, 'rocket', 1, 2], [0.1, 'double_barrel', 1, 1],
     [0.2, 'metal_hatchet', 1, 1], [0.2, 'metal_pickaxe', 1, 1], [0.3, 'sulfur', 30, 80],
   ],
   airdrop: [
     [1, 'rifle_ammo', 40, 80], [0.5, 'rifle', 1, 1], [0.25, 'bolt', 1, 1], [0.2, 'lmg', 1, 1],
     [0.35, 'metal_chest', 1, 1], [0.35, 'metal_helmet', 1, 1], [0.8, 'medkit', 2, 3], [1, 'metal_frag', 150, 300],
+    [0.2, 'rocket_launcher', 1, 1], [0.3, 'rocket', 1, 3], [0.3, 'hazmat', 1, 1], [0.3, 'explosive', 5, 15],
     [0.7, 'scrap', 40, 80], [0.5, 'gunpowder', 50, 100], [0.35, 'metal_hatchet', 1, 1],
     [0.35, 'metal_pickaxe', 1, 1], [0.4, 'revolver', 1, 1], [0.5, 'pistol_ammo', 20, 40],
   ],
@@ -142,6 +161,25 @@ export const LOOT = {
     [0.35, 'medkit', 1, 1], [0.12, 'revolver', 1, 1], [0.3, 'bandage', 1, 2],
   ],
 };
+
+// Выход переработчика для предметов без рецепта.
+export const RECYCLE_EXTRA = {
+  pipe: { scrap: 5, metal_frag: 10 },
+  rocket: { explosive: 2, pipe: 1 },
+};
+
+export function recycleYield(id) {
+  if (RECYCLE_EXTRA[id]) return RECYCLE_EXTRA[id];
+  const r = RECIPES.find((x) => x.out === id);
+  if (!r) return null;
+  const out = {};
+  for (const k in r.cost) {
+    const v = Math.floor((r.cost[k] * 0.5) / r.n);
+    if (v > 0) out[k] = v;
+  }
+  if (ITEMS[id].gun || ITEMS[id].armor || ITEMS[id].launcher) out.scrap = (out.scrap || 0) + 5;
+  return Object.keys(out).length ? out : null;
+}
 
 export function rollLoot(table) {
   const out = [];

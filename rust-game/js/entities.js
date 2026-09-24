@@ -470,6 +470,65 @@ export class Entities {
     }
   }
 
+  // ---------- Ракеты ----------
+  shootRocket(o, dir, speed) {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.5, 10), new THREE.MeshStandardMaterial({ color: 0x5a5a4a, roughness: 0.6 }));
+    body.rotation.x = Math.PI / 2;
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.16, 10), body.material);
+    nose.rotation.x = -Math.PI / 2;
+    nose.position.z = -0.33;
+    g.add(body, nose);
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.game.gfx.T.flame, blending: THREE.AdditiveBlending, depthWrite: false }));
+    glow.scale.setScalar(0.6);
+    glow.position.z = 0.3;
+    g.add(glow);
+    g.position.copy(o);
+    this.scene.add(g);
+    this.rockets = this.rockets || [];
+    this.rockets.push({ g, pos: o.clone(), vel: dir.clone().multiplyScalar(speed), life: 8, trail: 0 });
+  }
+
+  updateRockets(dt) {
+    if (!this.rockets) return;
+    const tmp = new THREE.Vector3();
+    for (let i = this.rockets.length - 1; i >= 0; i--) {
+      const r = this.rockets[i];
+      r.life -= dt;
+      r.vel.y -= 2.5 * dt;
+      const len = r.vel.length() * dt;
+      tmp.copy(r.vel).normalize();
+      const hit = this.game.raycast(r.pos, tmp, len, {});
+      if (hit || r.life <= 0 || r.pos.y < -2) {
+        const pt = hit ? r.pos.clone().addScaledVector(tmp, hit.t) : r.pos.clone();
+        this.scene.remove(r.g);
+        this.rockets.splice(i, 1);
+        this.game.explode(pt);
+        continue;
+      }
+      r.pos.addScaledVector(tmp, len);
+      r.g.position.copy(r.pos);
+      r.g.lookAt(tmp.clone().add(r.pos));
+      r.g.rotateY(Math.PI);
+      r.trail -= dt;
+      if (r.trail <= 0) {
+        r.trail = 0.02;
+        this.burst(r.pos.x, r.pos.y, r.pos.z, 0x8a8680, 2, 0.6, { grav: -1.2, life: 1.6, size: 2.2, up: 0.4 });
+        this.burst(r.pos.x, r.pos.y, r.pos.z, 0xffa040, 1, 0.5, { glow: true, size: 0.8, life: 0.15 });
+      }
+    }
+  }
+
+  // Короткая яркая вспышка (взрыв).
+  flash(pt, size) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.game.gfx.T.flame, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+    sp.position.copy(pt);
+    sp.scale.setScalar(size);
+    this.scene.add(sp);
+    this.flashes = this.flashes || [];
+    this.flashes.push({ sp, t: 0.35, size });
+  }
+
   // ---------- Трассеры ----------
   tracer(from, to, color = 0xffffaa) {
     const g = new THREE.BufferGeometry().setFromPoints([from, to]);
@@ -567,6 +626,16 @@ export class Entities {
 
   updateFx(dt) {
     this.updateArrows(dt);
+    this.updateRockets(dt);
+    if (this.flashes) {
+      for (let i = this.flashes.length - 1; i >= 0; i--) {
+        const f = this.flashes[i];
+        f.t -= dt;
+        f.sp.material.opacity = Math.max(0, f.t / 0.35);
+        f.sp.scale.setScalar(f.size * (1.4 - f.t));
+        if (f.t <= 0) { this.scene.remove(f.sp); f.sp.material.dispose(); this.flashes.splice(i, 1); }
+      }
+    }
     this.updateParticles(dt);
     for (let i = this.tracers.length - 1; i >= 0; i--) {
       const t = this.tracers[i];

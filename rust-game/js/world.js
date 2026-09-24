@@ -377,6 +377,42 @@ export class World {
     this.addStatic(x, y + h + 0.15, z, w + 0.2, 0.3, d + 0.2, 0x6f6e68);
   }
 
+  // Переработчик: разбирает вещи на ресурсы. Свой дизайн промышленной машины.
+  addRecycler(x, y, z) {
+    this.recyclers = this.recyclers || [];
+    const M = this.M;
+    const g = new THREE.Group();
+    const body = M.rustMetal.clone();
+    body.color.setHex(0x7e8f9c);
+    const add = (geo, m, px, py, pz, rx = 0, ry = 0, rz = 0) => {
+      const o = new THREE.Mesh(geo, m);
+      o.position.set(px, py, pz);
+      o.rotation.set(rx, ry, rz);
+      o.castShadow = true;
+      o.receiveShadow = true;
+      g.add(o);
+      return o;
+    };
+    add(worldBox(2.2, 1.5, 1.4, 1.5), body, 0, 0.75, 0);
+    add(worldBox(2.3, 0.15, 1.5, 1.5), M.rustMetal, 0, 1.55, 0);
+    add(new THREE.CylinderGeometry(0.55, 0.25, 0.6, 4, 1, true), body, -0.5, 1.9, 0, 0, Math.PI / 4, 0);
+    add(new THREE.CylinderGeometry(0.12, 0.12, 1.4, 10), M.rustMetal, 0.8, 2.2, -0.4);
+    const gear = add(new THREE.CylinderGeometry(0.4, 0.4, 0.08, 12), M.rustMetal, 0.5, 0.9, 0.72, Math.PI / 2, 0, 0);
+    add(worldBox(0.9, 0.5, 0.05, 1.5), new THREE.MeshStandardMaterial({ color: 0x1a1c1e, roughness: 0.4 }), -0.4, 0.7, 0.71);
+    const lampOn = new THREE.MeshBasicMaterial({ color: 0x40ff60 });
+    const lampOff = new THREE.MeshBasicMaterial({ color: 0xff3020 });
+    const lamp1 = add(new THREE.SphereGeometry(0.07, 10, 8), lampOff, 0.9, 1.35, 0.71);
+    const r = {
+      kind: 'recycler', name: 'Переработчик', x, y, z, mesh: g, inv: new Inventory(12), on: false, tick: 0,
+      gear, lamp: lamp1, lampOn, lampOff,
+    };
+    g.position.set(x, y, z);
+    this.scene.add(g);
+    r.col = this.addCollider(x - 1.15, y, z - 0.75, x + 1.15, y + 1.62, z + 0.75, r);
+    this.recyclers.push(r);
+    return r;
+  }
+
   addCrate(x, y, z, loot) {
     const drop = loot === 'airdrop';
     const military = loot === 'military' || drop;
@@ -440,6 +476,7 @@ export class World {
     for (const m of this.monuments) {
       const y = m.h;
       if (m.kind === 'base') {
+        m.rad = true;
         // периметр с воротами
         const s = 22, c = 0x8f8e86, t = 0.6, hh = 3.2;
         const seg = (x1, z1, x2, z2) => {
@@ -494,7 +531,9 @@ export class World {
         this.addCrate(m.x - 2.5, y, m.z + 11.5, 'crate');
         this.addCrate(m.x + 2.5, y, m.z + 11.5, 'crate');
         this.addCrate(m.x + 7, y, m.z - 6, 'crate');
+        this.addRecycler(m.x - 7, y, m.z - 6);
       } else if (m.kind === 'junk') {
+        this.addRecycler(m.x + 6, y, m.z + 7);
         const r = this.rng;
         const cols = [0x6d4a35, 0x5a5550, 0x7b3b2b, 0x3f5063, 0x807360];
         for (let i = 0; i < 14; i++) {

@@ -274,6 +274,33 @@ export function buildViewModel(item, M) {
       addFlash(M, pivot, root, -0.84, 0.08, 0.36);
       break;
     }
+    case 'double_barrel': {
+      const M2 = DARK, W = WOOD;
+      for (const sx of [-0.017, 0.017]) pivot.add(mesh(cyl(0.015, 0.015, 0.5, 10), M2, sx, 0.075, -0.44, Math.PI / 2, 0, 0));
+      pivot.add(mesh(box(0.06, 0.012, 0.46), M2, 0, 0.095, -0.44));
+      pivot.add(mesh(box(0.06, 0.06, 0.14), M2, 0, 0.065, -0.14));
+      pivot.add(mesh(box(0.055, 0.045, 0.22), W, 0, 0.045, -0.3));
+      pivot.add(mesh(box(0.04, 0.1, 0.05), W, 0, -0.02, -0.03, -0.4, 0, 0));
+      pivot.add(mesh(box(0.046, 0.085, 0.24), W, 0, 0.03, 0.14, -0.14, 0, 0));
+      pivot.add(mesh(box(0.012, 0.03, 0.03), M2, 0, 0.11, -0.08, 0.5, 0, 0));
+      pivot.add(mesh(new THREE.TorusGeometry(0.022, 0.004, 6, 12, Math.PI), M2, 0, -0.005, -0.08, 0, Math.PI / 2, Math.PI));
+      addFlash(M, pivot, root, -0.72, 0.075, 0.4);
+      break;
+    }
+    case 'launcher': {
+      const tube = std({ color: 0x4a5a3c, roughness: 0.7 });
+      pivot.add(mesh(cyl(0.05, 0.05, 1.0, 16, 1, true), tube, 0.02, 0.1, -0.25, Math.PI / 2, 0, 0));
+      pivot.add(mesh(cyl(0.058, 0.058, 0.06, 16), DARK, 0.02, 0.1, -0.76, Math.PI / 2, 0, 0));
+      pivot.add(mesh(cyl(0.062, 0.058, 0.1, 16), DARK, 0.02, 0.1, 0.24, Math.PI / 2, 0, 0));
+      pivot.add(mesh(box(0.04, 0.1, 0.05), DARK, 0.02, 0.01, -0.12, -0.3, 0, 0));
+      pivot.add(mesh(box(0.035, 0.09, 0.045), DARK, 0.02, 0.01, -0.38, -0.2, 0, 0));
+      pivot.add(mesh(box(0.03, 0.05, 0.1), DARK, -0.035, 0.16, -0.2));
+      const warhead = mesh(new THREE.ConeGeometry(0.045, 0.16, 12), std({ color: 0x5a5a4a, roughness: 0.6 }), 0.02, 0.1, -0.86, -Math.PI / 2, 0, 0);
+      pivot.add(warhead);
+      root.userData.warhead = warhead;
+      addFlash(M, pivot, root, 0.34, 0.1, 0.5);
+      break;
+    }
     default:
       if (item) {
         const c = ITEM_COLORS[item.id] ?? 0xaaaaaa;

@@ -27,7 +27,7 @@ export class UI {
       itemInfo: $('itemInfo'), cursor: $('cursorItem'), clock: $('clock'),
       map: $('mapScreen'), mapCanvas: $('mapCanvas'), mapMarkers: $('mapMarkers'),
       compassStrip: $('compassStrip'), compassMarks: $('compassMarks'), dmgDir: $('dmgDir'), lowhp: $('lowhp'),
-      equipGrid: $('equipGrid'), armorInfo: $('armorInfo'), armor: document.querySelector('#stats .armor'),
+      rad: $('rad'), equipGrid: $('equipGrid'), armorInfo: $('armorInfo'), armor: document.querySelector('#stats .armor'),
       hp: document.querySelector('#stats .hp'), food: document.querySelector('#stats .food'),
       water: document.querySelector('#stats .water'),
     };
@@ -245,7 +245,17 @@ export class UI {
       }
       for (let i = 0; i < cs.length; i++) this.fillSlot(this.el.contGrid.children[i], cs[i]);
       const c = this.container;
-      if (c.kind === 'deploy' && (c.type === 'furnace' || c.type === 'campfire')) {
+      if (c.kind === 'recycler') {
+        this.el.contActions.innerHTML = '';
+        const b = document.createElement('button');
+        b.textContent = c.on ? 'Выключить' : 'Включить';
+        b.className = c.on ? 'on' : '';
+        b.onclick = () => { c.on = !c.on; c.tick = 0; this.game.sfx('recycler'); this.refresh(); };
+        const hint = document.createElement('div');
+        hint.className = 'hint';
+        hint.textContent = 'Слоты 1–6 — вещи на переработку (оружие, броня, инструменты, трубы). Слоты 7–12 — полученные ресурсы и скрап.';
+        this.el.contActions.append(b, hint);
+      } else if (c.kind === 'deploy' && (c.type === 'furnace' || c.type === 'campfire')) {
         this.el.contActions.innerHTML = '';
         const b = document.createElement('button');
         b.textContent = c.on ? 'Потушить' : 'Зажечь';
@@ -420,6 +430,17 @@ export class UI {
       html += `<span class="mk2" style="left:${W / 2 + rel * this.PXDEG}px" title="${m.name}">${m.icon}</span>`;
     }
     if (this._marks !== html) { this._marks = html; this.el.compassMarks.innerHTML = html; }
+  }
+
+  setRad(level, prot) {
+    const k = level > 0.02 ? `${Math.round(level * 100)}|${prot}` : '';
+    if (this._rad === k) return;
+    this._rad = k;
+    const el = this.el.rad;
+    if (!k) { el.style.display = 'none'; return; }
+    el.style.display = 'block';
+    el.classList.toggle('safe', prot >= 1);
+    el.innerHTML = `☢ Радиация ${Math.round(level * 100)}%${prot >= 1 ? ' · защищено костюмом' : ' · нужен защитный костюм!'}`;
   }
 
   hurt() {

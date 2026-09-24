@@ -154,6 +154,22 @@ export function sfx(name, vol = 1) {
       noise(0.1, 800, 'bandpass', 0.35 * vol, 2);
       tone(300, 0.08, 'triangle', 0.1 * vol, 200);
       break;
+    case 'explosion':
+      noise(1.6, 900, 'lowpass', 2.2 * vol);
+      noise(0.4, 3000, 'lowpass', 1.2 * vol);
+      tone(55, 1.2, 'sine', 1.2 * vol, 25);
+      break;
+    case 'rocket':
+      noise(0.9, 1800, 'bandpass', 1.0 * vol, 0.7);
+      tone(220, 0.5, 'sawtooth', 0.2 * vol, 90);
+      break;
+    case 'geiger':
+      noise(0.012, 4000, 'highpass', 0.5 * vol);
+      break;
+    case 'recycler':
+      tone(90, 0.35, 'square', 0.06 * vol, 110);
+      noise(0.3, 700, 'bandpass', 0.25 * vol, 2);
+      break;
     case 'thunder':
       noise(3.2, 160, 'lowpass', 1.6 * vol);
       noise(1.2, 600, 'lowpass', 0.8 * vol);

@@ -4,7 +4,7 @@ import { World, HALF, NODE } from './world.js';
 import { Building, PIECE_ORDER, PIECES, TIERS, DEPLOY } from './building.js';
 import { Entities } from './entities.js';
 import { UI } from './ui.js';
-import { ITEMS, Inventory, FIST, costText, rollLoot, ARMOR_SLOTS, ARMOR_WEIGHT } from './items.js';
+import { ITEMS, Inventory, FIST, costText, rollLoot, ARMOR_SLOTS, ARMOR_WEIGHT, recycleYield } from './items.js';
 import { loadExternalModels } from './extmodels.js';
 import { initAudio, sfx as playSfx, setMuted, updateAmbient } from './audio.js';
 import { Y } from './ysdk.js';
@@ -58,6 +58,8 @@ class Game {
     this.scene.add(this.fireLight);
     this.torchLight = new THREE.PointLight(0xffa04a, 0, 24, 1.6);
     this.scene.add(this.torchLight);
+    this.boomLight = new THREE.PointLight(0xff8a3a, 0, 40, 1.5);
+    this.scene.add(this.boomLight);
     this.waterFog = new THREE.Color(0x0d3a4a);
     this.hurtFx = 0;
 
@@ -630,9 +632,14 @@ class Game {
       const ax = o.x + d.x * s, az = o.z + d.z * s, bx = o.x + d.x * e, bz = o.z + d.z * e;
       const list = this.world.colliders.query(Math.min(ax, bx) - 0.5, Math.min(az, bz) - 0.5, Math.max(ax, bx) + 0.5, Math.max(az, bz) + 0.5);
       for (const c of list) {
-        if (!c.ref || c.ref.kind !== 'static') continue;
+        if (!c.ref || (c.ref.kind !== 'static' && c.ref.kind !== 'recycler')) continue;
         const h = rayBoxC(o, d, c, best.t);
-        if (h && h.t < best.t) { best.t = h.t; best.kind = 'static'; best.obj = c; best.normal = { x: h.nx, y: h.ny, z: h.nz }; }
+        if (h && h.t < best.t) {
+          best.t = h.t;
+          best.kind = c.ref.kind === 'recycler' ? 'recycler' : 'static';
+          best.obj = c.ref.kind === 'recycler' ? c.ref : c;
+          best.normal = { x: h.nx, y: h.ny, z: h.nz };
+        }
       }
     }
   }
@@ -649,24 +656,34 @@ class Game {
   eyeRay() {
     const p = this.player;
     this.tmpO.set(p.pos.x, p.pos.y + EYE, p.pos.z);
-    this.tmpD.set(0, 0, -1).applyEuler(this.camera.rotation);
+    // направление берём из взгляда игрока, а не из камеры (тряска камеры не сбивает прицел)
+    this.tmpE = this.tmpE || new THREE.Euler(0, 0, 0, 'YXZ');
+    this.tmpE.set(p.pitch, p.yaw, 0, 'YXZ');
+    this.tmpD.set(0, 0, -1).applyEuler(this.tmpE);
     return [this.tmpO, this.tmpD];
   }
 
   // ---------- Урон игроку ----------
   armorValue() {
+    let full = 0;
+    for (const s of this.equip.slots) if (s && ITEMS[s.id].armor && ITEMS[s.id].armor.full) full = Math.max(full, ITEMS[s.id].armor.prot);
     let v = 0;
     ARMOR_SLOTS.forEach((slot, i) => {
       const s = this.equip.slots[i];
-      if (s && ITEMS[s.id].armor) v += ITEMS[s.id].armor.prot * ARMOR_WEIGHT[slot];
+      const p = s && ITEMS[s.id].armor ? ITEMS[s.id].armor.prot : 0;
+      v += Math.max(p, full) * ARMOR_WEIGHT[slot];
     });
     return v;
+  }
+
+  radProtection() {
+    return this.equip.slots.some((s) => s && ITEMS[s.id].armor && ITEMS[s.id].armor.rad) ? 1 : 0;
   }
 
   damagePlayer(dmg, src, from) {
     const p = this.player;
     if (!p.alive || this.state === 'menu') return;
-    if (src !== 'Голод' && src !== 'Жажда' && src !== 'Падение') dmg *= 1 - this.armorValue();
+    if (src !== 'Голод' && src !== 'Жажда' && src !== 'Падение' && src !== 'Радиация') dmg *= 1 - this.armorValue();
     if (from) {
       const bearing = Math.atan2(from.x - p.pos.x, -(from.z - p.pos.z));
       this.ui.damageDir(bearing + p.yaw);
@@ -691,6 +708,8 @@ class Game {
       if (this.lmb) this.swing(it ? it.melee : FIST);
     } else if (it.gun) {
       if (it.gun.auto ? this.lmb : edge) this.fireGun(s, it.gun);
+    } else if (it.launcher) {
+      if (edge) this.fireLauncher(it.launcher);
     } else if (it.ranged) {
       if (edge) this.fireBow(it.ranged);
     } else if (it.eat || it.heal) {
@@ -873,6 +892,82 @@ class Game {
     this.invDirty = true;
   }
 
+  updateRecycler(r, dt) {
+    r.gear.rotation.y += r.on ? dt * 3 : 0;
+    r.lamp.material = r.on ? r.lampOn : r.lampOff;
+    if (!r.on) return;
+    r.tick += dt;
+    if (r.tick < 2) return;
+    r.tick = 0;
+    const inv = r.inv;
+    let done = false;
+    for (let i = 0; i < 6 && !done; i++) {
+      const s = inv.slots[i];
+      if (!s) continue;
+      const y = recycleYield(s.id);
+      if (!y) continue;
+      s.n -= 1;
+      if (s.n <= 0) inv.slots[i] = null;
+      for (const id in y) {
+        const left = inv.add(id, y[id], 6);
+        if (left > 0) { r.on = false; this.ui.notify('Переработчик: выход заполнен'); }
+      }
+      done = true;
+    }
+    if (!done) r.on = false;
+    this.sfx('recycler', r, 0.8);
+    if (this.ui.container === r) this.ui.refresh();
+  }
+
+  fireLauncher(L) {
+    if (this.inv.count(L.ammo) <= 0) { this.ui.notify('Нет ракет'); this.cool = 0.4; this.sfx('empty'); return; }
+    this.inv.remove(L.ammo, 1);
+    this.cool = L.rate + L.reload;
+    this.recoilT = 0;
+    this.muzzleT = 0.12;
+    this.shake = Math.max(this.shake, 0.7);
+    this.sfx('rocket');
+    const [o, d] = this.eyeRay();
+    const start = o.clone().addScaledVector(d, 1.2);
+    start.y -= 0.1;
+    this.ents.shootRocket(start, d.clone(), L.speed);
+  }
+
+  // Взрыв: урон по радиусу существам, игроку и постройкам.
+  explode(pt, R = 5) {
+    const ents = this.ents;
+    ents.burst(pt.x, pt.y, pt.z, 0xff9a30, 34, 9, { glow: true, size: 1.2, life: 0.55 });
+    ents.burst(pt.x, pt.y, pt.z, 0x3a3632, 22, 3.5, { grav: -2.5, life: 2.6, size: 4 });
+    ents.burst(pt.x, pt.y, pt.z, 0x5a4a38, 16, 6, { size: 1.4 });
+    ents.flash(pt, 6);
+    this.boomLight.position.copy(pt);
+    this.boomLight.position.y += 1;
+    this.boomLight.intensity = 90;
+    this.sfx('explosion', pt, 1.4);
+    const dp = pt.distanceTo(this.player.pos);
+    this.shake = Math.max(this.shake, Math.max(0, 1.2 - dp / 40));
+    for (const m of [...ents.mobs]) {
+      if (m.dead) continue;
+      const d = Math.hypot(m.pos.x - pt.x, m.pos.y + m.h / 2 - pt.y, m.pos.z - pt.z);
+      if (d < R) ents.damage(m, 160 * (1 - d / R));
+    }
+    const pd = Math.hypot(this.player.pos.x - pt.x, this.player.pos.y + 0.9 - pt.y, this.player.pos.z - pt.z);
+    if (pd < R) this.damagePlayer(110 * (1 - pd / R), 'Взрыв', pt);
+    const b = this.building;
+    for (const p of [...b.pieces]) {
+      let best = Infinity;
+      for (const c of p.cols) {
+        const cx = Math.max(c.minX, Math.min(pt.x, c.maxX)), cy = Math.max(c.minY, Math.min(pt.y, c.maxY)), cz = Math.max(c.minZ, Math.min(pt.z, c.maxZ));
+        best = Math.min(best, Math.hypot(cx - pt.x, cy - pt.y, cz - pt.z));
+      }
+      if (best < R * 0.8) b.damagePiece(p, 420 * (1 - best / (R * 0.8)));
+    }
+    for (const d of [...b.deploys]) {
+      if (Math.hypot(d.x - pt.x, d.y - pt.y, d.z - pt.z) < 2.2) b.removeDeploy(d, true);
+    }
+    if (this.world.grass) this.world.grass.dirty = true;
+  }
+
   fireBow(r) {
     if (this.inv.count(r.ammo) <= 0) { this.ui.notify('Нет стрел'); this.cool = 0.4; return; }
     this.inv.remove(r.ammo, 1);
@@ -1018,6 +1113,7 @@ class Game {
       case 'node': this.pickupNode(t.obj); break;
       case 'crate':
       case 'bag':
+      case 'recycler':
         this.openInventory(t.obj);
         break;
       case 'deploy':
@@ -1049,6 +1145,7 @@ class Game {
       else if (hit.kind === 'bag') t = { kind: 'bag', obj, text: 'Обыскать мешок' };
       else if (hit.kind === 'deploy') t = { kind: 'deploy', obj, text: obj.type === 'sleeping_bag' ? 'Сделать точкой возрождения' : `Открыть: ${obj.name}` };
       else if (hit.kind === 'piece' && obj.type === 'door') t = { kind: 'door', obj, text: obj.open ? 'Закрыть дверь' : 'Открыть дверь' };
+      else if (hit.kind === 'recycler') t = { kind: 'recycler', obj, text: 'Открыть: Переработчик' };
       else if (hit.kind === 'mob' && obj.dead && obj.animal) this.corpseHint = true;
     }
     if (!t && o.y > 0 && d.y < 0) {
@@ -1402,6 +1499,25 @@ class Game {
     if (this.spawnBag) marks.push({ x: this.spawnBag.x, z: this.spawnBag.z, icon: '🛏️', name: 'Спальник' });
     for (const m of marks) m.bearing = ((Math.atan2(m.x - p.pos.x, -(m.z - p.pos.z)) * 180 / Math.PI) + 360) % 360;
     this.ui.updateCompass(heading, marks);
+    // радиация
+    let rad = 0;
+    for (const m of this.world.monuments) {
+      if (!m.rad) continue;
+      rad = Math.max(rad, smoothstep(m.r * 1.25, m.r * 0.35, Math.hypot(p.pos.x - m.x, p.pos.z - m.z)));
+    }
+    this.radLevel = rad;
+    const radProt = this.radProtection();
+    if (p.alive && rad > 0.02) {
+      if (radProt < 1) this.damagePlayer(dt * 1.8 * rad * (1 - radProt), 'Радиация');
+      this.geigerT = (this.geigerT || 0) - dt;
+      if (this.geigerT <= 0) {
+        this.geigerT = Math.random() * 0.4 / (rad + 0.05);
+        this.sfx('geiger', null, 0.6);
+      }
+    }
+    this.ui.setRad(p.alive ? rad : 0, radProt);
+    this.boomLight.intensity = Math.max(0, this.boomLight.intensity - dt * 220);
+    for (const r of this.world.recyclers || []) this.updateRecycler(r, dt);
     // сердцебиение при низком здоровье
     if (p.alive && p.hp < 25) {
       this.heartT = (this.heartT || 0) - dt;
@@ -1530,6 +1646,7 @@ class Game {
     }
     if (it && it.gun) this.ui.setAmmo(`${s.ammo} / ${this.inv.count(it.gun.ammo)}${this.reloadT > 0 ? ' · перезарядка' : ''}`);
     else if (it && it.ranged) this.ui.setAmmo(`➶ ${this.inv.count(it.ranged.ammo)}`);
+    else if (it && it.launcher) this.ui.setAmmo(`🧨 ${this.inv.count(it.launcher.ammo)}`);
     else this.ui.setAmmo('');
     if (!(it && (it.gun || it.ranged))) this.aim = false;
   }

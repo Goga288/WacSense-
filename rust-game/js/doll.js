@@ -68,6 +68,9 @@ export class Doll {
       bucket_helmet: new THREE.Group(),
       metal_helmet: new THREE.Group(),
       armored_pants: new THREE.Group(),
+      scrap_armor: new THREE.Group(),
+      iron_mask: new THREE.Group(),
+      hazmat: new THREE.Group(),
     };
     const A = this.armor;
     for (let i = 0; i < 4; i++) part(A.wood_armor, new THREE.BoxGeometry(0.1, 0.46, 0.05), wood, -0.16 + i * 0.105, 1.22, 0.16);
@@ -87,12 +90,41 @@ export class Doll {
       part(A.armored_pants, new THREE.BoxGeometry(0.15, 0.25, 0.05), metal, sx * 0.11, 0.72, 0.1);
       part(A.armored_pants, new THREE.BoxGeometry(0.15, 0.2, 0.05), metal, sx * 0.11, 0.35, 0.1);
     }
+    // броня из металлолома: разнокалиберные пластины на ремнях
+    const rusty = M.rustMetal;
+    const plates = [[-0.12, 1.32, 0.17, 0.2, 0.18], [0.1, 1.3, 0.17, 0.18, 0.2], [-0.05, 1.1, 0.17, 0.3, 0.16], [0.13, 1.08, 0.16, 0.12, 0.14]];
+    for (const [x, y, z, w, h] of plates) part(A.scrap_armor, new THREE.BoxGeometry(w, h, 0.03), rusty, x, y, z, 0, 0, (x * 3) % 0.2);
+    part(A.scrap_armor, new THREE.BoxGeometry(0.44, 0.44, 0.03), rusty, 0, 1.2, -0.16);
+    for (const sx of [-1, 1]) part(A.scrap_armor, new THREE.BoxGeometry(0.05, 0.5, 0.36), std(0x3a2a1c), sx * 0.17, 1.28, 0, 0, 0, sx * 0.25);
+    // железная маска с прорезями для глаз
+    part(A.iron_mask, new THREE.BoxGeometry(0.24, 0.26, 0.04), metal, 0, 1.78, 0.155);
+    for (const sx of [-1, 1]) part(A.iron_mask, new THREE.BoxGeometry(0.07, 0.018, 0.02), std(0x050505), sx * 0.055, 1.82, 0.178);
+    for (let i = 0; i < 3; i++) part(A.iron_mask, new THREE.BoxGeometry(0.012, 0.05, 0.02), std(0x050505), -0.03 + i * 0.03, 1.7, 0.178);
+    part(A.iron_mask, new THREE.BoxGeometry(0.3, 0.03, 0.34), std(0x3a2a1c), 0, 1.8, 0);
+    // защитный костюм: цельный комбинезон, капюшон, маска-респиратор
+    const suit = std(0xd8dcd0, { roughness: 0.55 });
+    const suitDark = std(0x5a6a74, { roughness: 0.6 });
+    part(A.hazmat, cap(0.22, 0.44), suit, 0, 1.2, 0, 0, 0, 0, 1.18, 1.02, 0.8);
+    for (const sx of [-1, 1]) {
+      part(A.hazmat, cap(0.075, 0.44), suit, sx * 0.3, 1.2, 0, 0, 0, sx * 0.12);
+      part(A.hazmat, cap(0.1, 0.52), suit, sx * 0.11, 0.55, 0);
+      part(A.hazmat, new THREE.BoxGeometry(0.14, 0.14, 0.26), suitDark, sx * 0.11, 0.08, 0.03);
+      part(A.hazmat, new THREE.SphereGeometry(0.068, 10, 8), suitDark, sx * 0.34, 0.9, 0.02);
+    }
+    part(A.hazmat, new THREE.SphereGeometry(0.19, 16, 12), suit, 0, 1.8, -0.01, 0, 0, 0, 1, 1.08, 1);
+    part(A.hazmat, new THREE.SphereGeometry(0.13, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2), std(0x1a2a3a, { roughness: 0.15, metalness: 0.3 }), 0, 1.81, 0.1, Math.PI / 2, 0, 0, 1, 1, 0.5);
+    part(A.hazmat, new THREE.CylinderGeometry(0.045, 0.05, 0.08, 12), suitDark, 0, 1.68, 0.17, Math.PI / 2 - 0.4, 0, 0);
+    part(A.hazmat, new THREE.BoxGeometry(0.3, 0.36, 0.14), suitDark, 0, 1.28, -0.2);
     for (const k in A) { A[k].visible = false; r.add(A[k]); }
+    this.body = r.children.slice(0, r.children.length - Object.keys(A).length);
   }
 
   setEquip(slots) {
     for (const k in this.armor) this.armor[k].visible = false;
     for (const s of slots) if (s && this.armor[s.id]) this.armor[s.id].visible = true;
+    // костюм закрывает тело полностью
+    const haz = slots.some((s) => s && s.id === 'hazmat');
+    for (const o of this.body || []) o.visible = !haz;
   }
 
   render(dt) {
