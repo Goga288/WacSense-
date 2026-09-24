@@ -1,6 +1,10 @@
 -- ServerScriptService/Systems/Equipment
 -- Hand-held items: flashlight (never runs out, beam visible to everyone), crowbar (melee),
 -- flares (thrown light sources that repel Climbers). All effects are resolved here.
+-- 0.15: whether the flashlight is on is kept here (state.torchOn), not on the SpotLight.
+-- Avatar loading can replace the Head and take the light with it; the light is rebuilt
+-- whenever it is missing, so the switch can no longer silently stop working.
+-- Also the X key: the player screams. Everyone hears it, and so does everything hunting.
 local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -15,11 +19,13 @@ local MELEE_DAMAGE = 20
 local MELEE_COOLDOWN = 0.6
 local FLARE_TIME = 30
 local FLARE_RADIUS = 20
+local SCREAM_COOLDOWN = 3.5
+local SCREAM_NOISE = 95 -- studs: creatures this close hear it and come to look
 
 local function stateOf(player)
 	local s = Equipment.state[player]
 	if not s then
-		s = { propId = nil, prop = nil, lastSwing = 0, lastFlare = 0 }
+		s = { propId = nil, prop = nil, lastSwing = 0, lastFlare = 0, lastScream = 0, torchOn = false }
 		Equipment.state[player] = s
 	end
 	return s
@@ -33,6 +39,9 @@ function Equipment.init(g)
 	G.Net.on("Flashlight", function(player)
 		Equipment.toggleFlashlight(player)
 	end, 0.2)
+	G.Net.on("Scream", function(player)
+		Equipment.scream(player)
+	end, 0.5)
 	-- Hold right mouse / FOCUS: a narrow, hot beam that burns Climbers.
 	G.Net.on("Focus", function(player, on)
 		Equipment.setFocus(player, on == true)
@@ -56,6 +65,19 @@ function Equipment.init(g)
 	Players.PlayerRemoving:Connect(function(p)
 		Equipment.state[p] = nil
 	end)
+	-- Watchdog: re-attach anything the avatar loader knocked off (light, held props).
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			for _, p in ipairs(Players:GetPlayers()) do
+				local ok, err = pcall(Equipment.heal, p)
+				if not ok and not Equipment.healWarned then
+					Equipment.healWarned = true
+					warn("[Equipment] heal failed: " .. tostring(err))
+				end
+			end
+		end
+	end)
 end
 
 function Equipment.onCharacter(player, character)
@@ -68,25 +90,13 @@ function Equipment.onCharacter(player, character)
 	s.aim = nil
 	s.leftProp = nil
 	s.focus = false
+	s.torchOn = false
 	player:SetAttribute("TorchOn", false)
 	player:SetAttribute("TorchAim", nil)
 	player:SetAttribute("TorchFocus", false)
 	local head = character:WaitForChild("Head", 10)
 	if head then
 		local old = head:FindFirstChild("TorchMount"); if old then old:Destroy() end
-		local mount = Instance.new("Attachment")
-		mount.Name = "TorchMount"
-		mount.Parent = head
-		local torch = Instance.new("SpotLight")
-		torch.Name = "Torch"
-		torch.Face = Enum.NormalId.Front
-		torch.Angle = 55
-		torch.Range = 60
-		torch.Brightness = 4.5
-		torch.Color = Color3.fromRGB(255, 244, 222)
-		torch.Shadows = true
-		torch.Enabled = false
-		torch.Parent = mount
 	end
 	Equipment.refresh(player)
 end
@@ -94,11 +104,48 @@ end
 local NORMAL_BEAM = { Angle = 50, Range = 60, Brightness = 4.5 }
 local FOCUS_BEAM = { Angle = 22, Range = 70, Brightness = 8 }
 
+-- The server beam other players see. Built on demand and rebuilt if the head was replaced;
+-- its Enabled always follows state.torchOn.
 local function torchOf(player)
 	local c = player.Character
 	local head = c and c:FindFirstChild("Head")
-	local mount = head and head:FindFirstChild("TorchMount")
-	return mount and mount:FindFirstChild("Torch")
+	if not head then
+		return nil
+	end
+	local s = stateOf(player)
+	local mount = head:FindFirstChild("TorchMount")
+	if not mount then
+		mount = Instance.new("Attachment")
+		mount.Name = "TorchMount"
+		mount.Parent = head
+	end
+	local torch = mount:FindFirstChild("Torch")
+	if not torch then
+		torch = Instance.new("SpotLight")
+		torch.Name = "Torch"
+		torch.Face = Enum.NormalId.Front
+		torch.Color = Color3.fromRGB(255, 244, 222)
+		torch.Shadows = true
+		for k, v in pairs(s.focus and FOCUS_BEAM or NORMAL_BEAM) do
+			torch[k] = v
+		end
+		torch.Enabled = false
+		torch.Parent = mount
+	end
+	local want = s.torchOn == true
+	if torch.Enabled ~= want then
+		torch.Enabled = want
+	end
+	return torch
+end
+
+-- A welded prop is still on the character (its hand was not swapped out from under it).
+local function attached(prop, character)
+	if not prop or prop.Parent ~= character then
+		return false
+	end
+	local weld = prop:FindFirstChildOfClass("WeldConstraint")
+	return weld ~= nil and weld.Part0 ~= nil and weld.Part0.Parent == character
 end
 
 function Equipment.hasFlashlight(player)
@@ -107,9 +154,9 @@ end
 
 function Equipment.setFocus(player, on)
 	local s = stateOf(player)
-	local torch = torchOf(player)
-	on = on and torch ~= nil and torch.Enabled
+	on = on and s.torchOn == true
 	s.focus = on
+	local torch = torchOf(player)
 	player:SetAttribute("TorchFocus", on)
 	if torch then
 		for k, v in pairs(on and FOCUS_BEAM or NORMAL_BEAM) do
@@ -123,7 +170,7 @@ local function refreshLeftHand(player, s)
 	local character = player.Character
 	local want = character ~= nil and Equipment.hasFlashlight(player)
 	player:SetAttribute("HasFlashlight", Equipment.hasFlashlight(player))
-	if want and s.leftProp and s.leftProp.Parent == character then
+	if want and attached(s.leftProp, character) then
 		return
 	end
 	if s.leftProp then
@@ -267,23 +314,21 @@ function Equipment.refresh(player)
 	local character = player.Character
 	player:SetAttribute("Equipped", id or "")
 	refreshLeftHand(player, s)
-	local torch = torchOf(player)
-	if torch then
-		if not Equipment.hasFlashlight(player) and torch.Enabled then
-			torch.Enabled = false
-			Equipment.setFocus(player, false)
-		end
-		player:SetAttribute("TorchOn", torch.Enabled)
-		local lens = s.leftProp and s.leftProp:FindFirstChild("Lens")
-		if lens then
-			lens.Material = torch.Enabled and Enum.Material.Neon or Enum.Material.Glass
-		end
+	if s.torchOn and not Equipment.hasFlashlight(player) then
+		s.torchOn = false
+		Equipment.setFocus(player, false)
+	end
+	torchOf(player)
+	player:SetAttribute("TorchOn", s.torchOn == true)
+	local lens = s.leftProp and s.leftProp:FindFirstChild("Lens")
+	if lens then
+		lens.Material = s.torchOn and Enum.Material.Neon or Enum.Material.Glass
 	end
 	-- The flashlight is carried in the left hand, so the right hand stays free for tools.
 	if id == "Flashlight" then
 		id = nil
 	end
-	if id == s.propId and (s.prop == nil or s.prop.Parent) then
+	if id == s.propId and (s.prop == nil or attached(s.prop, character)) then
 		return
 	end
 	if s.prop then
@@ -303,20 +348,60 @@ function Equipment.refresh(player)
 	s.prop = prop
 end
 
+-- Unlimited: there is no battery. On/off is all there is.
 function Equipment.toggleFlashlight(player)
 	if not Equipment.hasFlashlight(player) then
 		G.Net.toast(player, "You have no flashlight. Craft one at a bench.", "warn")
+		player:SetAttribute("TorchOn", false)
 		return
 	end
-	local torch = torchOf(player)
-	if not torch then
-		return
-	end
-	torch.Enabled = not torch.Enabled
-	if not torch.Enabled then
+	local s = stateOf(player)
+	s.torchOn = not s.torchOn
+	if not s.torchOn then
 		Equipment.setFocus(player, false)
 	end
 	Equipment.refresh(player)
+end
+
+-- Once a second: puts back whatever an avatar reload knocked off the character.
+function Equipment.heal(player)
+	local character = player.Character
+	if not character or not character.Parent then
+		return
+	end
+	local s = stateOf(player)
+	torchOf(player)
+	local brokenLeft = s.leftProp ~= nil and not attached(s.leftProp, character)
+	local missingLeft = s.leftProp == nil and Equipment.hasFlashlight(player)
+		and (character:FindFirstChild("LeftHand") or character:FindFirstChild("Left Arm")) ~= nil
+	local brokenRight = s.prop ~= nil and not attached(s.prop, character)
+	if brokenLeft or missingLeft or brokenRight then
+		if brokenRight then
+			s.propId = nil
+		end
+		Equipment.refresh(player)
+	end
+	if player:GetAttribute("TorchOn") ~= (s.torchOn == true) then
+		player:SetAttribute("TorchOn", s.torchOn == true)
+	end
+end
+
+-- X: a scream everyone nearby hears. Creatures hear it too and come to look.
+function Equipment.scream(player)
+	local s = stateOf(player)
+	local now = os.clock()
+	if now - s.lastScream < SCREAM_COOLDOWN then
+		return
+	end
+	local character, _, root = G.Net.alive(player)
+	if not character then
+		return
+	end
+	s.lastScream = now
+	local head = character:FindFirstChild("Head") or root
+	G.AI.SFX.play("PlayerScream", head, { speed = 0.96 + math.random() * 0.08 })
+	G.AI.noise(root.Position, SCREAM_NOISE)
+	player:SetAttribute("ScreamAt", workspace:GetServerTimeNow())
 end
 
 function Equipment.useEquipped(player)
@@ -435,10 +520,20 @@ end
 
 -- Returns a player's flashlight beam if it is on: origin, direction.
 function Equipment.beamOf(player)
+	local s = stateOf(player)
+	if not s.torchOn then
+		return nil
+	end
 	local torch = torchOf(player)
-	if torch and torch.Enabled then
+	if torch then
 		local mount = torch.Parent
-		return mount.WorldPosition, mount.WorldCFrame.LookVector, stateOf(player).focus == true
+		return mount.WorldPosition, mount.WorldCFrame.LookVector, s.focus == true
+	end
+	-- No head (a headless avatar): shine from the chest along the aim.
+	local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+	if root then
+		local aim = s.aim or root.CFrame.LookVector
+		return root.Position + Vector3.new(0, 1.5, 0) + aim, aim, s.focus == true
 	end
 	return nil
 end

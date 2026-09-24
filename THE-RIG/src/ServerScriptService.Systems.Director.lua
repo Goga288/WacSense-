@@ -45,8 +45,15 @@ function Director.onPhase(phase, day)
 			G.AI.Silhouette.summon()
 		end
 	end
+	if phase == "Evening" or phase == "Night" then
+		-- Tonight's creatures (the evening scouts already come from them).
+		G.AI.Roster.roll(day)
+	end
 	if phase == "Evening" then
 		G.Net.banner("EVENING", "Three hours to nightfall. Refuel E-01, close the doors, power the lights.", "warn")
+		if math.random() < Config.Peeker.evening then
+			G.AI.Peeker.summon()
+		end
 		if math.random() < p.watcherChance * 0.5 then
 			G.AI.Watcher.appear()
 		end
@@ -73,6 +80,9 @@ function Director.onPhase(phase, day)
 			if math.random() < p.mimicChance and G.AI.Mimic.count() < p.mimicMax then
 				task.spawn(G.AI.Mimic.spawn) -- builds a character model, may yield
 			end
+		end
+		if p.final or math.random() < Config.Peeker.chance then
+			G.AI.Peeker.summon()
 		end
 	end
 	Director.objectiveDirty()
@@ -327,6 +337,14 @@ function Director.test(player, what)
 		G.DayCycle.setHour(5.92)
 	elseif what == "Climber" then
 		G.AI.Climber.spawn({ flank = true, force = true })
+	elseif what == "D1" or what == "D2" or what == "D3" then
+		if not G.AI.Climber.spawn({ flank = true, force = true, tier = what }) then
+			G.Net.toast(player, "DEV: no " .. what .. " model in the map (name it \"дефолт " .. string.sub(what, 2) .. "\").", "warn")
+		end
+	elseif what == "Peeker" then
+		if not G.AI.Peeker.summon(true) then
+			G.Net.toast(player, "DEV: no Peeker model in the map.", "warn")
+		end
 	elseif what == "Wave" then
 		Director.spawnWave(4, true, true)
 	elseif what == "Watcher" then

@@ -85,15 +85,16 @@ function Progression.profile(day)
 	p.phase = Progression.phase(day).id
 	p.brain = Progression.brain(day)
 	local b = p.brain
-	-- Climbers.
+	-- Climbers. Days 1-5: only the tier creatures from the map come (AI/Roster), a few at a
+	-- time; the old creatures stay down until day 6.
 	if b == 0 then
-		p.climberMax = 0
+		p.climberMax = math.min(2 + (day - 1) // 2, 3)
 	elseif b == 1 then
 		p.climberMax = math.min(2 + (day - 6) // 2, 4)
 	else
 		p.climberMax = math.min(3 + math.floor(day / 3), 16)
 	end
-	p.climberInterval = b == 1 and 22 or math.max(7, math.floor(lerp(24, 7, t * 1.8)))
+	p.climberInterval = b == 0 and 28 or b == 1 and 22 or math.max(7, math.floor(lerp(24, 7, t * 1.8)))
 	p.climberWaves = b >= 2 -- burst spawns at 23:00 and 03:00
 	p.waveSize = 2 + math.floor(day / 8)
 	p.saboteurs = b >= 2 and day >= 16 -- some Climbers hunt powered floodlights

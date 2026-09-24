@@ -5,16 +5,68 @@
 -- The beam comes out of the flashlight in your left hand (first person) or from in front of
 -- your face (third person), lags a touch behind fast turns, and flickers when something is
 -- close.
+-- 0.15: the light part lives in a client-only folder in Workspace, not under the Camera
+-- (lights under the Camera do not reliably light the world), and F switches the beam at
+-- once on this client while the server confirms. It has no battery: it never runs out.
 local RunService = game:GetService("RunService")
 local CollectionService = game:GetService("CollectionService")
 
-local Flash = { dir = nil, flickerUntil = 0, nextFlicker = 0 }
+local Flash = { dir = nil, flickerUntil = 0, nextFlicker = 0, predicted = nil, predictUntil = 0 }
 local C
 local camera = workspace.CurrentCamera
 
 -- 1 stud = 0.28 m; normal beam reaches 16.8 m, focused beam 19.6 m.
 local NORMAL = { Angle = 50, Range = 60, Brightness = 4.5 }
 local FOCUS = { Angle = 22, Range = 70, Brightness = 8 }
+
+-- Client-only folder for local lights. Anything a LocalScript puts in Workspace stays on
+-- this client; the server and other players never see it.
+function Flash.localFolder()
+	local f = workspace:FindFirstChild("LocalFX")
+	if not f or not f:IsA("Folder") then
+		f = Instance.new("Folder")
+		f.Name = "LocalFX"
+		f.Parent = workspace
+	end
+	return f
+end
+
+local function carrying()
+	local player = C.player
+	if player:GetAttribute("HasFlashlight") == true then
+		return true
+	end
+	for _, slot in ipairs(C.inventory and C.inventory.slots or {}) do
+		if slot and slot.id == "Flashlight" then
+			return true
+		end
+	end
+	return false
+end
+
+-- F / LIGHT button: flip the beam right away; the server's TorchOn takes over as soon as
+-- it arrives (or after a second, if the request was refused).
+function Flash.toggle()
+	if not carrying() then
+		return
+	end
+	local now = os.clock()
+	local current = Flash.isOn(true)
+	Flash.predicted = not current
+	Flash.predictUntil = now + 1
+end
+
+function Flash.isOn(raw)
+	local server = C.player:GetAttribute("TorchOn") == true
+	if Flash.predicted ~= nil then
+		if server == Flash.predicted or os.clock() > Flash.predictUntil then
+			Flash.predicted = nil
+		else
+			return Flash.predicted
+		end
+	end
+	return server
+end
 
 function Flash.init(ctx)
 	C = ctx
@@ -26,7 +78,8 @@ function Flash.init(ctx)
 	p.CanTouch = false
 	p.Transparency = 1
 	p.Size = Vector3.new(0.2, 0.2, 0.2)
-	p.Parent = camera
+	p.CastShadow = false
+	p.Parent = Flash.localFolder()
 	local spot = Instance.new("SpotLight")
 	spot.Face = Enum.NormalId.Front
 	spot.Shadows = true
@@ -67,7 +120,9 @@ end
 function Flash.render(dt)
 	camera = workspace.CurrentCamera
 	if not camera then return end
-	if Flash.part.Parent ~= camera then Flash.part.Parent = camera end
+	if not Flash.part.Parent or Flash.part.Parent.Parent ~= workspace then
+		Flash.part.Parent = Flash.localFolder()
+	end
 	local player = C.player
 	local character = player.Character
 	local head = character and character:FindFirstChild("Head")
@@ -78,7 +133,7 @@ function Flash.render(dt)
 	if serverTorch and serverTorch.Enabled then
 		serverTorch.Enabled = false
 	end
-	local on = not C.panelOpen and player:GetAttribute("TorchOn") == true and hum ~= nil and hum.Health > 0
+	local on = not C.panelOpen and Flash.isOn() and hum ~= nil and hum.Health > 0
 	if not on or not head then
 		Flash.spot.Enabled = false
 		Flash.spill.Enabled = false

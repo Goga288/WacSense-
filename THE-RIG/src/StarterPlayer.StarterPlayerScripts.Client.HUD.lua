@@ -118,8 +118,14 @@ function HUD.init(ctx)
 		local torch = UI.button(act, "LIGHT", { Position = UDim2.new(0, 80, 0, 0), Size = UDim2.new(0, 60, 0, 60), TextSize = 11 })
 		UI.corner(torch, 30)
 		torch.Activated:Connect(function()
+			C.Flashlight.toggle()
 			C.send("Flashlight")
 			C.Viewmodel.toggled()
+		end)
+		local scream = UI.button(act, "SCREAM", { Position = UDim2.new(0, -70, 0, 0), Size = UDim2.new(0, 60, 0, 60), TextSize = 9 })
+		UI.corner(scream, 30)
+		scream.Activated:Connect(function()
+			C.scream()
 		end)
 		local focus = UI.button(act, "FOCUS", { Position = UDim2.new(0, 0, 0, 0), Size = UDim2.new(0, 60, 0, 60), TextSize = 10 })
 		UI.corner(focus, 30)
@@ -196,10 +202,10 @@ end
 function HUD.buildDev()
 	local dev = UI.new("Frame", { BackgroundTransparency = 1, AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 24, 1, -16), Size = UDim2.new(0, 250, 0, 30), Visible = false, ZIndex = 35 }, C.gui)
 	local toggle = UI.button(dev, "DEV TOOLS (Studio)", { Size = UDim2.new(1, 0, 0, 26), TextSize = 11, TextColor3 = col.Teal })
-	local grid = UI.panelBox(dev, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 0, -4), Size = UDim2.new(1, 0, 0, 292), Visible = false })
+	local grid = UI.panelBox(dev, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 0, -4), Size = UDim2.new(1, 0, 0, 396), Visible = false })
 	UI.pad(grid, 6)
 	UI.new("UIGridLayout", { CellSize = UDim2.new(0.5, -4, 0, 28), CellPadding = UDim2.new(0, 6, 0, 6) }, grid)
-	for _, cmd in ipairs({ "Night", "Evening", "Dawn", "Climber", "Wave", "Watcher", "Mimic", "Silhouette", "Leviathan", "Lurker", "Storm", "Clear", "Event", "Supplies", "SkipDays", "DamageGen", "Tech" }) do
+	for _, cmd in ipairs({ "Night", "Evening", "Dawn", "Climber", "Wave", "Watcher", "Mimic", "Silhouette", "Leviathan", "Lurker", "Storm", "Clear", "Event", "Supplies", "SkipDays", "DamageGen", "Tech", "D1", "D2", "D3", "Peeker" }) do
 		UI.button(grid, cmd, { TextSize = 11 }, function()
 			C.send("Test", cmd)
 		end)
@@ -496,7 +502,7 @@ function HUD.loop()
 			HUD.bars.Oxygen.set(o2, 100)
 			HUD.bars.Oxygen.frame.Visible = o2 < 99.5 or player:GetAttribute("Underwater") == true
 			local armor = player:GetAttribute("Armor") or 0
-			HUD.extra.Text = string.format("%s%s   CR %d", player:GetAttribute("TorchFocus") and "TORCH FOCUS" or "TORCH", armor > 0 and string.format("   VEST %d", math.floor(armor)) or "", player:GetAttribute("Credits") or 0)
+			HUD.extra.Text = string.format("%s%s   CR %d", player:GetAttribute("TorchFocus") and "TORCH ∞ FOCUS" or "TORCH ∞", armor > 0 and string.format("   VEST %d", math.floor(armor)) or "", player:GetAttribute("Credits") or 0)
 
 			local eq = HUD.equipped
 			if eq == "Flashlight" then

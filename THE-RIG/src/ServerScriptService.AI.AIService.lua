@@ -1,6 +1,8 @@
 -- ServerScriptService/AI/AIService
 -- Shared AI services: creature registry, noise events, light queries, damage routing,
 -- camera highlights and sonar. Creature brains live in Climber / Mimic / Watcher / Leviathan.
+-- 0.15: Roster turns the creature models placed in the map into tonight's creatures (they
+-- use the Climber brain); Peeker is the one that watches from behind you.
 --
 -- 0.10: the HIVE. Every creature shares one memory:
 --   * sightings (who was seen where, and how fast they were moving),
@@ -28,7 +30,14 @@ function AI.init(g)
 	AI.Leviathan = require(script.Parent.Leviathan)
 	AI.Lurker = require(script.Parent.Lurker)
 	AI.Silhouette = require(script.Parent.Silhouette)
-	for _, m in ipairs({ AI.Climber, AI.Mimic, AI.Watcher, AI.Leviathan, AI.Lurker, AI.Silhouette }) do
+	AI.Roster = require(script.Parent.Roster)
+	AI.Peeker = require(script.Parent.Peeker)
+	-- The roster first: the Climber brain takes its kinds from it.
+	local ok, err = pcall(AI.Roster.init, G, AI)
+	if not ok then
+		warn("[AI] Roster.init failed: " .. tostring(err))
+	end
+	for _, m in ipairs({ AI.Climber, AI.Mimic, AI.Watcher, AI.Leviathan, AI.Lurker, AI.Silhouette, AI.Peeker }) do
 		m.init(G, AI)
 	end
 	Players.PlayerRemoving:Connect(function(p)
@@ -551,6 +560,9 @@ function AI.hit(model, amount, byPlayer)
 		AI.Climber.onHit(model, byPlayer)
 	elseif brain == "Lurker" then
 		AI.Lurker.onHit(model, byPlayer)
+	elseif brain == "Peeker" then
+		AI.Peeker.onHit(model, byPlayer)
+		return
 	end
 	if hum.Health <= 0 and byPlayer then
 		AI.hive.meleeDeaths += 1
@@ -647,6 +659,8 @@ function AI.clearNight()
 	AI.Watcher.leave()
 	AI.Lurker.retreatAll()
 	AI.Silhouette.leave()
+	AI.Peeker.leave()
+	AI.Roster.clear()
 	for p, h in pairs(AI.hive.players) do
 		h.scented = false
 		h.anchor = nil
@@ -725,6 +739,7 @@ function AI.step(dt)
 	AI.Watcher.step(now, dt)
 	AI.Lurker.step(now, dt)
 	AI.Silhouette.step(now, dt)
+	AI.Peeker.step(now, dt)
 	AI.updateSensors(dt)
 end
 

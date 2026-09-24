@@ -55,13 +55,21 @@ local function buildItems(model)
 	add("Left", "Flashlight", head, CFrame.new(0, -0.98, -0.12) * cyl)
 	local lens = newPart(model, "Lens", Vector3.new(0.04, 0.4, 0.4), Color3.fromRGB(255, 244, 210), Enum.Material.Neon, Enum.PartType.Cylinder)
 	add("Left", "Flashlight", lens, CFrame.new(0, -1.16, -0.12) * cyl)
-	local glow = Instance.new("PointLight")
-	glow.Color = Color3.fromRGB(255, 238, 205)
-	glow.Brightness = 1.4
-	glow.Range = 6
-	glow.Shadows = false
-	glow.Parent = lens
-	View.glow = glow
+	-- The glow sits on a proxy in the client-only LocalFX folder (lights under the Camera
+	-- do not reliably light anything); render() keeps it on the lens.
+	if not View.glow or not View.glow.Parent then
+		local proxy = newPart(View.fxFolder(), "LensGlow", Vector3.new(0.1, 0.1, 0.1), Color3.new(1, 1, 1), Enum.Material.SmoothPlastic)
+		proxy.Transparency = 1
+		local glow = Instance.new("PointLight")
+		glow.Color = Color3.fromRGB(255, 238, 205)
+		glow.Brightness = 1.4
+		glow.Range = 6
+		glow.Shadows = false
+		glow.Enabled = false
+		glow.Parent = proxy
+		View.glow = glow
+	end
+	View.lens = lens
 	local bar = newPart(model, "CrowbarShaft", Vector3.new(0.14, 2.6, 0.14), Color3.fromRGB(160, 40, 34))
 	add("Right", "Crowbar", bar, CFrame.new(0, -0.9, -0.12))
 	local hook = newPart(model, "CrowbarHook", Vector3.new(0.14, 0.14, 0.5), Color3.fromRGB(110, 116, 120))
@@ -228,9 +236,19 @@ function View.rebuild(character)
 	View.dirty = false
 end
 
+function View.fxFolder()
+	local f = workspace:FindFirstChild("LocalFX")
+	if not f or not f:IsA("Folder") then
+		f = Instance.new("Folder")
+		f.Name = "LocalFX"
+		f.Parent = workspace
+	end
+	return f
+end
+
 function View.init(ctx)
 	C = ctx
-	local fill = newPart(workspace.CurrentCamera, "ArmFill", Vector3.new(0.1, 0.1, 0.1), Color3.new(1, 1, 1), Enum.Material.SmoothPlastic)
+	local fill = newPart(View.fxFolder(), "ArmFill", Vector3.new(0.1, 0.1, 0.1), Color3.new(1, 1, 1), Enum.Material.SmoothPlastic)
 	fill.Transparency = 1
 	local light = Instance.new("PointLight")
 	light.Color = Color3.fromRGB(235, 228, 214)
@@ -331,7 +349,7 @@ function View.render(dt)
 	end
 	local show = firstPerson and hum.Health > 0 and not C.panelOpen and not (C.Build and C.Build.active) and not hum.Sit
 	local equipped = player:GetAttribute("Equipped") or ""
-	local lit = torchOn(character)
+	local lit = C.Flashlight and C.Flashlight.isOn and C.Flashlight.isOn() or torchOn(character)
 	local want = {
 		Left = show and hasFlashlight(player),
 		Right = show and (equipped == "Crowbar" or equipped == "Flare"),
@@ -388,7 +406,13 @@ function View.render(dt)
 	end
 
 	View.glow.Enabled = want.Left and lit and View.amount.Left > 0.5
+	if View.lens and View.glow.Parent then
+		View.glow.Parent.CFrame = View.lens.CFrame
+	end
 	View.fillLight.Enabled = anyShown
+	if View.fill.Parent == nil then
+		View.fill.Parent = View.fxFolder()
+	end
 	View.fill.CFrame = cf * CFrame.new(0, -0.5, -1.2)
 	-- Our own world props stay hidden (other players see them in our character's hands).
 	for _, name in ipairs({ "HeldItem", "HeldLight" }) do

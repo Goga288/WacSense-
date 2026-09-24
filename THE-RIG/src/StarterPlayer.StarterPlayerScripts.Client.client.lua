@@ -59,6 +59,17 @@ function C.useEquipped()
 	if not C.panelOpen then C.send("UseEquipped") end
 end
 
+-- X: scream. The server plays it on your character for everyone (and the creatures hear it).
+local lastScream = 0
+function C.scream()
+	if C.panelOpen or os.clock() - lastScream < 3.5 then return end
+	lastScream = os.clock()
+	C.send("Scream")
+	if C.Env and C.Env.effect then
+		pcall(C.Env.effect, "Shake", 0.35, 0.4)
+	end
+end
+
 -- UI root (ScreenGui "MainUI" from StarterGui)
 local playerGui = player:WaitForChild("PlayerGui")
 local gui = playerGui:WaitForChild("MainUI", 10)
@@ -93,6 +104,8 @@ C.Navigation = require(script:WaitForChild("Navigation"))
 C.Horror = require(script:WaitForChild("Horror"))
 C.Flashlight = require(script:WaitForChild("Flashlight"))
 C.HeldPose = require(script:WaitForChild("HeldPose"))
+C.MonsterAnim = require(script:WaitForChild("MonsterAnim"))
+C.Corridors = require(script:WaitForChild("Corridors"))
 
 -- Free camera: mouse wheel zooms from first person out to third person; V snaps between them.
 player.CameraMode = Enum.CameraMode.Classic
@@ -170,6 +183,8 @@ C.Horror.init(C)
 require(script:WaitForChild("Dread")).init(C)
 C.Flashlight.init(C)
 C.HeldPose.init(C)
+C.MonsterAnim.init(C)
+C.Corridors.init(C)
 C.applySettings(false)
 task.spawn(function()
 	local scripts = player:WaitForChild("PlayerScripts")
@@ -337,8 +352,11 @@ UserInputService.InputBegan:Connect(function(input, processed)
 	elseif key == Enum.KeyCode.V then
 		task.spawn(C.toggleView)
 	elseif key == Enum.KeyCode.F then
+		C.Flashlight.toggle()
 		C.send("Flashlight")
 		C.Viewmodel.toggled()
+	elseif key == Enum.KeyCode.X then
+		C.scream()
 	elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
 		-- Right mouse: drag the object in front of you; with nothing to drag, focus the beam.
 		if not C.CarryClient.grab() then

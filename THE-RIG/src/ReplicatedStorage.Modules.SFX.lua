@@ -4,6 +4,9 @@
 -- Slowed down, pitch-shifted, distorted and drenched in reverb they become growls, shrieks,
 -- skittering claws and a heartbeat. Any recipe can be swapped for a real asset id through
 -- Config.Sounds (same key) once the game is published.
+-- 0.15: slots for the game's own recordings (PlayerScream, Corridors, Distant, Jumpscare,
+-- Peeker, Apex). An id may be written as a number, "123" or "rbxassetid://123"; until one
+-- is set, the stand-in recipe below plays so every hook can be heard in Studio.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SoundService = game:GetService("SoundService")
 local Debris = game:GetService("Debris")
@@ -37,6 +40,12 @@ SFX.Recipes = {
 	Thunder = { id = BOOM, speed = 0.35, volume = 1.4, fx = { Reverb = -2, Low = true } },
 	Ping = { id = CLICK, speed = 1.4, volume = 0.5 },
 	Pickup = { id = CLICK, speed = 0.9, volume = 0.6 },
+	-- 0.15 slots (stand-ins until Config.Sounds has the real file).
+	PlayerScream = { id = OUCH, speed = 0.82, volume = 2.2, range = 160, fx = { Distortion = 0.4, Reverb = -5 } },
+	Corridors = { id = FALL, speed = 0.16, volume = 0.3, loop = true, fx = { Low = true, Reverb = -3, Tremolo = 0.4 } },
+	Jumpscare = { id = OUCH, speed = 0.64, volume = 3.2, fx = { Distortion = 0.95, Pitch = 1.35, Echo = 0.07 } },
+	Peeker = { id = SWIM, speed = 0.28, volume = 1.3, range = 70, fx = { Low = true, Reverb = -2, Tremolo = 3 } },
+	Apex = { id = OOF, speed = 0.19, volume = 2.6, range = 280, fx = { Distortion = 0.8, Pitch = 0.6, Reverb = -1, Echo = 0.25 } },
 }
 
 local function addFx(sound, fx)
@@ -73,12 +82,33 @@ local function addFx(sound, fx)
 	end
 end
 
-local function override(name)
+local function config()
 	local ok, Config = pcall(function()
 		return require(ReplicatedStorage.Modules.Config)
 	end)
-	local id = ok and Config.Sounds and Config.Sounds[name]
-	return type(id) == "string" and id ~= "" and string.sub(id, 1, 13) == "rbxassetid://" and id or nil
+	return ok and Config or nil
+end
+
+-- A real asset id from Config.Sounds, normalised to "rbxassetid://N", or nil.
+local function override(name)
+	local Config = config()
+	local id = Config and Config.Sounds and Config.Sounds[name]
+	if type(id) == "number" and id > 0 then
+		return "rbxassetid://" .. string.format("%d", id)
+	end
+	if type(id) ~= "string" or id == "" then
+		return nil
+	end
+	local digits = string.match(id, "^%s*(%d+)%s*$") or string.match(id, "^rbxassetid://(%d+)$")
+	if digits then
+		return "rbxassetid://" .. digits
+	end
+	return nil
+end
+
+-- True once the game's own file is configured for this slot.
+function SFX.custom(name)
+	return override(name) ~= nil
 end
 
 -- Creates (does not play) a configured Sound. parent nil = 2D sound in SoundService.
@@ -93,6 +123,11 @@ function SFX.make(name, parent)
 	s.SoundId = custom or r.id
 	s.PlaybackSpeed = custom and 1 or (r.speed or 1)
 	s.Volume = r.volume or 0.8
+	if custom then
+		local Config = config()
+		local v = Config and Config.SoundVolume and Config.SoundVolume[name]
+		s.Volume = type(v) == "number" and v or math.min(s.Volume, 1.5)
+	end
 	s.Looped = r.loop == true
 	if parent then
 		s.RollOffMode = Enum.RollOffMode.InverseTapered

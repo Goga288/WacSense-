@@ -6,6 +6,8 @@
 --   * Creatures twitch: jerky head snaps, a jaw that gapes while hunting, flickering eyes.
 --   * Lamps flicker and die for a moment near a creature.
 --   * Night ambience: low wind and distant cries somewhere out in the dark.
+-- 0.15: the screamer plays Config.Sounds.Jumpscare when one is set, and frames the new
+-- skinned creatures by their head bone, frozen in the pose they had when they struck.
 local RunService = game:GetService("RunService")
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -92,14 +94,33 @@ function Horror.scare(model, sudden)
 			d:Destroy()
 		end
 	end
-	local head = copy:FindFirstChild("Head") or copy.PrimaryPart
-	if not head then
+	local head = copy:FindFirstChild("Head")
+	local face, reach = nil, 1
+	if head and head:IsA("BasePart") then
+		face = head.CFrame
+	else
+		-- Skinned creature: aim at its head bone, facing the way the body faces.
+		local root = copy.PrimaryPart or copy:FindFirstChild("HumanoidRootPart")
+		local anim = C.MonsterAnim
+		local bone = anim and anim.headBone(copy)
+		if anim then
+			pcall(anim.copyPose, model, copy)
+		end
+		if bone and root then
+			local p = bone.TransformedWorldCFrame.Position
+			face = CFrame.lookAt(p, p + root.CFrame.LookVector)
+		elseif root then
+			face = root.CFrame
+		end
+		reach = math.clamp((model:GetAttribute("Height") or 8) / 8, 1, 3)
+	end
+	if not face then
 		copy:Destroy()
 		return
 	end
 	copy.Parent = Horror.vp
-	local face = head.CFrame
 	local function shot(dist, fov, roll)
+		dist *= reach
 		local jitter = Vector3.new((math.random() - 0.5) * 0.35, (math.random() - 0.5) * 0.3, 0)
 		local cam = face.Position + face.LookVector * dist + Vector3.new(0, 0.15, 0) + jitter
 		Horror.vpCam.FieldOfView = fov
@@ -110,10 +131,14 @@ function Horror.scare(model, sudden)
 	Horror.vp.ImageTransparency = 0
 	Horror.vp.BackgroundTransparency = 0
 	Horror.red.BackgroundTransparency = 0.4
-	SFX.play("ScreamA", nil, { volume = sudden and 0.9 or 1.1 })
-	SFX.play("ScreamB", nil, { volume = 1.1 })
-	SFX.play("ScreamC")
-	SFX.play("Stinger", nil, { volume = 1.2 })
+	if SFX.custom("Jumpscare") then
+		SFX.play("Jumpscare", nil, { volume = sudden and 0.9 or 1 })
+	else
+		SFX.play("ScreamA", nil, { volume = sudden and 0.9 or 1.1 })
+		SFX.play("ScreamB", nil, { volume = 1.1 })
+		SFX.play("ScreamC")
+		SFX.play("Stinger", nil, { volume = 1.2 })
+	end
 	C.Env.effect("Shake", 1.6, 1.1)
 	task.spawn(function()
 		-- 1) it lunges at the lens, 2) hard cuts: black / face / red, 3) fade out.

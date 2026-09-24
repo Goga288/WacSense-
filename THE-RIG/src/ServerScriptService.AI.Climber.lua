@@ -18,6 +18,11 @@
 --   * It regenerates in the dark, fakes a retreat when hurt, dodges crowbar swings and
 --     learns: lamps that kill Climbers attract more saboteurs.
 --   Still fears bright light (floodlights, flares, defense posts): it burns and flees.
+--
+-- 0.15: the creature models placed in the map (AI/Roster) are kinds of this brain too, in
+-- tiers. A tier kind's mind comes from its tier and the night (Config.Tiers.*.minds), not
+-- from the day band: a D1 is stupid for weeks, a D3 is clever from the first night, and
+-- every one of them sharpens as the nights go on.
 local PathfindingService = game:GetService("PathfindingService")
 local TweenService = game:GetService("TweenService")
 local ServerStorage = game:GetService("ServerStorage")
@@ -27,7 +32,7 @@ local SFX = require(ReplicatedStorage.Modules.SFX)
 
 local Climber = { units = {}, nextId = 0 }
 local C = Config.Climber
-local G, AI
+local G, AI, Roster
 local templates = {}
 
 -- Four kinds come up out of the sea, and they share one brain. Each is a body and a
@@ -303,8 +308,40 @@ local function statsFor(kind, brain)
 	return stats, mind
 end
 
--- Which kind comes up next, weighted by what the day allows.
-local function pickKind()
+-- A tier kind (a model from the map) as numbers for this brain. Reach grows with its size.
+local function tierKind(kind)
+	local T = Config.Tiers[kind.tier] or {}
+	local i = kind.info
+	local reach = math.clamp(i.rw * 0.5 + 3 + i.height * 0.08, 5, 10)
+	return {
+		name = kind.name, tier = kind.tier,
+		Health = T.Health, WalkSpeed = T.WalkSpeed, ChaseSpeed = T.ChaseSpeed, Damage = T.Damage,
+		AttackCooldown = T.AttackCooldown, StructureDamage = T.StructureDamage, LightDamage = T.LightDamage,
+		AttackRange = reach, StructureRange = reach + 2,
+		agent = { AgentRadius = math.max(1.4, i.rw * 0.55), AgentHeight = math.max(3, i.hip + i.rh + 0.5) },
+		voice = T.voice, quiet = T.quiet, heavy = i.height > 16,
+	}
+end
+
+-- Which kind comes up next. With creature models in the map: one of tonight's roster
+-- (nil when every tier tonight is at its cap). Otherwise weighted by what the day allows.
+local function pickKind(tier)
+	if Roster and Roster.hasKinds() then
+		local alive = {}
+		for _, u in ipairs(Climber.units) do
+			if u.tier then
+				alive[u.tier] = (alive[u.tier] or 0) + 1
+			end
+		end
+		local kind = Roster.pick(G.DayCycle.day, alive, tier)
+		local keepOld = Config.Tiers.KeepOldCreatures and (G.Director.profile.brain or 0) > 0 and not tier
+		if kind and KINDS[kind.id] and not (keepOld and math.random() < 0.35) then
+			return kind.id
+		end
+		if not keepOld then
+			return nil
+		end
+	end
 	local kinds = G.Director.profile.kinds or { Climber = 1 }
 	local total = 0
 	for _, w in pairs(kinds) do total += w end
@@ -319,8 +356,15 @@ end
 function Climber.init(g, ai)
 	G = g
 	AI = ai
+	Roster = ai.Roster
 	for kind in pairs(KINDS) do
 		templates[kind] = buildTemplate(kind)
+	end
+	for id, kind in pairs(Roster and Roster.kinds or {}) do
+		if kind.tier == "D1" or kind.tier == "D2" or kind.tier == "D3" then
+			KINDS[id] = tierKind(kind)
+			templates[id] = kind.template
+		end
 	end
 end
 
@@ -365,7 +409,7 @@ local function setState(u, state)
 		end
 		u.hum.WalkSpeed = speed
 		if state == "Chase" and was ~= "Attack" then
-			AI.cry(u, "Shriek", 7)
+			AI.cry(u, C.voice or "Shriek", C.voice and 14 or 7)
 		end
 	end
 end
@@ -542,9 +586,19 @@ end
 local function newUnit(model, opts)
 	Climber.nextId += 1
 	local root = model.HumanoidRootPart
+	local tier = KINDS[opts.kind] and KINDS[opts.kind].tier
+	local day = G.DayCycle.day or 1
 	-- A spawn forced from the DEV panel on a quiet day still gets the stupidest mind.
-	local brain = math.max(G.Director.profile.brain or 1, 1)
+	local brain = tier and Roster.brainFor(tier, day) or math.max(G.Director.profile.brain or 1, 1)
 	local stats, mind = statsFor(opts.kind, brain)
+	if tier then
+		-- Every night makes them a little faster and a little sharper.
+		local sharp = math.min(day, 100)
+		stats.SightRange *= 1 + sharp * 0.003
+		stats.HearRange *= 1 + sharp * 0.003
+		stats.WalkSpeed += sharp * 0.02
+		stats.ChaseSpeed += sharp * 0.02
+	end
 	local agent = stats.agent or { AgentRadius = 2, AgentHeight = 5 }
 	local unit = {
 		id = Climber.nextId,
@@ -556,7 +610,8 @@ local function newUnit(model, opts)
 		root = root,
 		hum = model:FindFirstChildOfClass("Humanoid"),
 		role = opts.role,
-		stalker = math.random() < 0.55,
+		tier = tier,
+		stalker = tier == "D3" or math.random() < (tier == "D1" and 0.3 or 0.55),
 		state = "Climb",
 		stateSince = os.clock(),
 		nextAttack = 0,
@@ -586,13 +641,22 @@ local function newUnit(model, opts)
 	model:SetAttribute("State", "Climb")
 	model:SetAttribute("Mind", brain)
 	table.insert(Climber.units, unit)
+	if stats.voice then
+		AI.cry(unit, stats.voice, 14)
+	end
 	return unit
 end
 
--- opts = {flank = bool, role = "Saboteur" | nil, point = CFrame, near = Vector3 (player position)}
+-- opts = {flank = bool, role = "Saboteur" | nil, point = CFrame, near = Vector3 (player position),
+--         kind = id, tier = "D1" | "D2" | "D3" (DEV: any kind of that tier)}
 function Climber.spawn(opts)
 	opts = opts or {}
-	if not AI.allowed(opts.force) then
+	-- The tier creatures come every night from the first; the old ones wait for day 6.
+	if not AI.allowed(opts.force) and not (Roster and Roster.hasKinds()) then
+		return nil
+	end
+	opts.kind = opts.kind or pickKind(opts.tier)
+	if not opts.kind or not templates[opts.kind] then
 		return nil
 	end
 	if opts.near then
@@ -654,6 +718,10 @@ end
 -- or digs out of the ground when there is no water close enough.
 function Climber.spawnNear(target, opts)
 	opts = opts or {}
+	opts.kind = opts.kind or pickKind(opts.tier)
+	if not opts.kind or not templates[opts.kind] then
+		return nil
+	end
 	local water = AI.findWaterNear(target, 24)
 	local start, climbTop
 	if water then
@@ -1012,7 +1080,8 @@ local function think(u, now, dt, profile)
 		u.skitter.Playing = speedNow > 6
 	end
 	if now >= u.nextGrowl then
-		u.nextGrowl = now + math.random(5, 12)
+		-- A clever one keeps quiet until it is on you.
+		u.nextGrowl = now + (C.quiet and math.random(16, 30) or math.random(5, 12))
 		if u.state ~= "Lurk" then
 			AI.cry(u, math.random() < 0.5 and "Growl" or "GrowlLow", 3)
 		end
