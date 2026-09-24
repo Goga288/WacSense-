@@ -9,6 +9,7 @@ import { initAudio, sfx as playSfx, setMuted } from './audio.js';
 import { Y } from './ysdk.js';
 import { clamp, lerp, smoothstep, rand, randi } from './util.js';
 import { buildViewModel } from './viewmodel.js';
+import { Gfx, QUALITY, QUALITY_ORDER, wind } from './gfx.js';
 
 const SAVE_KEY = 'rusty_island_save_v1';
 const DAY_LENGTH = 16 * 60; // секунд на полные сутки
@@ -21,46 +22,44 @@ class Game {
     this.mobile = Y.isMobile();
     this.state = 'loading';
     this.canvas = $('game');
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: !this.mobile, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.mobile ? 1.25 : 1.75));
+    let qs = null;
+    try { qs = JSON.parse(localStorage.getItem(SAVE_KEY + '_settings') || '{}').quality; } catch (e) { /* ignore */ }
+    this.qualityKey = QUALITY[qs] ? qs : this.mobile ? 'low' : 'high';
+    const Q = QUALITY[this.qualityKey];
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: !Q.post, powerPreference: 'high-performance' });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, Q.pr));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.shadowMap.enabled = !this.mobile;
+    this.renderer.shadowMap.enabled = Q.shadows > 0;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 0.62;
     this.renderer.autoClear = false;
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.Fog(0x9cc9ec, 50, 240);
-    this.scene.background = new THREE.Color(0x9cc9ec);
-    this.camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.08, 700);
+    this.scene.fog = new THREE.Fog(0xa9b8bf, 30, 330);
+    this.camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.08, 1500);
     this.camera.rotation.order = 'YXZ';
     this.scene.add(this.camera);
 
-    this.hemi = new THREE.HemisphereLight(0xcfe8ff, 0x4d5a36, 1.0);
+    this.hemi = new THREE.HemisphereLight(0xc8d8e8, 0x4a4632, 0.6);
     this.scene.add(this.hemi);
-    this.sun = new THREE.DirectionalLight(0xfff1d6, 2.4);
-    this.sun.castShadow = !this.mobile;
-    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun = new THREE.DirectionalLight(0xfff1d6, 3);
+    this.sun.castShadow = Q.shadows > 0;
+    if (Q.shadows) this.sun.shadow.mapSize.set(Q.shadows, Q.shadows);
     const sc = this.sun.shadow.camera;
-    sc.left = -45; sc.right = 45; sc.top = 45; sc.bottom = -45; sc.near = 1; sc.far = 250;
-    this.sun.shadow.bias = -0.0006;
-    this.sun.shadow.normalBias = 0.04;
+    sc.left = -55; sc.right = 55; sc.top = 55; sc.bottom = -55; sc.near = 1; sc.far = 300;
+    this.sun.shadow.bias = -0.0004;
+    this.sun.shadow.normalBias = 0.05;
     this.scene.add(this.sun, this.sun.target);
-    this.fireLight = new THREE.PointLight(0xff9a40, 0, 16, 1.6);
+    this.fireLight = new THREE.PointLight(0xff8a30, 0, 18, 1.6);
     this.scene.add(this.fireLight);
-    this.sunDisc = new THREE.Mesh(new THREE.SphereGeometry(14, 12, 8), new THREE.MeshBasicMaterial({ color: 0xfff4c0, fog: false }));
-    this.moonDisc = new THREE.Mesh(new THREE.SphereGeometry(9, 12, 8), new THREE.MeshBasicMaterial({ color: 0xdde6ff, fog: false }));
-    this.scene.add(this.sunDisc, this.moonDisc);
-    this.buildClouds();
-    this.skyDay = new THREE.Color(0x8dc0ea);
-    this.skyNight = new THREE.Color(0x0a1322);
-    this.skySet = new THREE.Color(0xe99a5c);
-    this.skyWater = new THREE.Color(0x1d4f6a);
-    this.skyCol = new THREE.Color();
+    this.waterFog = new THREE.Color(0x0d3a4a);
+    this.hurtFx = 0;
 
     // отдельная сцена для предмета в руках (не проваливается в стены)
     this.vmScene = new THREE.Scene();
     this.vmCamera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 10);
-    this.vmHemi = new THREE.HemisphereLight(0xffffff, 0x666666, 1.6);
+    this.vmHemi = new THREE.HemisphereLight(0xffffff, 0x555555, 1.6);
     this.vmScene.add(this.vmHemi);
     this.vmDir = new THREE.DirectionalLight(0xffffff, 1.2);
     this.vmDir.position.set(1, 2, 1);
@@ -104,7 +103,10 @@ class Game {
 
   async init() {
     await Y.init();
-    this.world = new World(this.scene);
+    this.gfx = new Gfx(this, this.qualityKey);
+    this.gfx.initSky(this.scene);
+    this.gfx.initPost(window.innerWidth, window.innerHeight);
+    this.world = new World(this.scene, this.gfx);
     this.building = new Building(this);
     this.ents = new Entities(this);
     this.ui = new UI(this);
@@ -134,26 +136,6 @@ class Game {
     Y.ready();
     this.last = performance.now();
     requestAnimationFrame((t) => this.frame(t));
-  }
-
-  buildClouds() {
-    this.clouds = new THREE.Group();
-    const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true, emissive: 0x555555 });
-    const geo = new THREE.IcosahedronGeometry(1, 0);
-    for (let i = 0; i < 28; i++) {
-      const c = new THREE.Group();
-      const n = 3 + Math.floor(Math.random() * 4);
-      for (let j = 0; j < n; j++) {
-        const m = new THREE.Mesh(geo, mat);
-        m.position.set(j * 7 - n * 3.5 + rand(-2, 2), rand(-1.5, 1.5), rand(-4, 4));
-        m.scale.set(rand(6, 10), rand(3, 5), rand(5, 8));
-        c.add(m);
-      }
-      c.position.set(rand(-350, 350), rand(85, 120), rand(-350, 350));
-      this.clouds.add(c);
-    }
-    this.cloudMat = mat;
-    this.scene.add(this.clouds);
   }
 
   // ---------- Жизненный цикл ----------
@@ -301,6 +283,7 @@ class Game {
       this.camera.updateProjectionMatrix();
       this.vmCamera.aspect = w / h;
       this.vmCamera.updateProjectionMatrix();
+      this.gfx.resize(w, h);
     });
     document.addEventListener('pointerlockchange', () => {
       if (!document.pointerLockElement && this.state === 'play' && !this.ui.open && !this.mapOpen && !this.expectUnlock) this.pause();
@@ -472,6 +455,15 @@ class Game {
     const snd = $('btnSound');
     const updSnd = () => { snd.textContent = this.soundOn ? '🔊 Звук: вкл' : '🔇 Звук: выкл'; };
     snd.onclick = () => { this.soundOn = !this.soundOn; setMuted(!this.soundOn); updSnd(); this.saveSettings(); };
+    const qb = $('btnQuality');
+    qb.textContent = `🖥️ Графика: ${QUALITY[this.qualityKey].name}`;
+    qb.onclick = () => {
+      const i = QUALITY_ORDER.indexOf(this.qualityKey);
+      this.qualityKey = QUALITY_ORDER[(i + 1) % QUALITY_ORDER.length];
+      this.saveSettings();
+      this.save();
+      location.reload();
+    };
     const sens = $('sens');
     sens.oninput = () => { this.sens = +sens.value; this.saveSettings(); };
     try {
@@ -489,7 +481,7 @@ class Game {
   }
 
   saveSettings() {
-    try { localStorage.setItem(SAVE_KEY + '_settings', JSON.stringify({ sens: this.sens, soundOn: this.soundOn })); } catch (e) { /* ignore */ }
+    try { localStorage.setItem(SAVE_KEY + '_settings', JSON.stringify({ sens: this.sens, soundOn: this.soundOn, quality: this.qualityKey })); } catch (e) { /* ignore */ }
   }
 
   // ---------- Инвентарь / UI ----------
@@ -624,6 +616,7 @@ class Game {
     const p = this.player;
     if (!p.alive || this.state === 'menu') return;
     p.hp -= dmg;
+    this.hurtFx = Math.min(1, this.hurtFx + dmg / 25);
     this.ui.hurt();
     this.sfx('hurt');
     if (p.hp <= 0) this.die(src);
@@ -714,6 +707,11 @@ class Game {
       return;
     }
     if (def.pickup) { this.pickupNode(n); return; }
+    if (!def.give) {
+      this.sfx('stone');
+      this.ents.burst(pt.x, pt.y, pt.z, 0x8d8a84, 4, 2);
+      return;
+    }
     const mult = tool[def.gather] || 0.2;
     const want = Math.max(1, Math.round(5 * mult));
     const got = Math.min(want, n.amount);
@@ -1044,7 +1042,7 @@ class Game {
     const nodes = this.world.nodes.query(p.x - 2, p.z - 2, p.x + 2, p.z + 2);
     for (const n of nodes) {
       if (!n.alive || !n.col) continue;
-      if (feet > n.y + (n.kind === 'tree' ? 5 : 1.1)) continue;
+      if (feet > n.y + (n.colH || (n.kind === 'tree' ? 5 : 1.1))) continue;
       const dx = p.x - n.x, dz = p.z - n.z;
       const d = Math.hypot(dx, dz), min = PR + n.col;
       if (d < min && d > 1e-4) {
@@ -1114,7 +1112,7 @@ class Game {
     if (id !== this.vmId) {
       this.vmId = id;
       if (this.vm) this.vmScene.remove(this.vm);
-      this.vm = buildViewModel(s ? ITEMS[s.id] : null);
+      this.vm = buildViewModel(s ? ITEMS[s.id] : null, this.gfx.M);
       this.vmScene.add(this.vm);
       this.swingT = 1;
     }
@@ -1161,53 +1159,48 @@ class Game {
   }
 
   // ---------- Небо и свет ----------
-  updateSky() {
-    const t = this.dayTime;
-    const ang = (t - 0.25) * Math.PI * 2;
-    const elev = Math.sin(ang);
-    const sd = new THREE.Vector3(Math.cos(ang), elev, 0.35).normalize();
-    const day = smoothstep(-0.12, 0.25, elev);
-    const set = (1 - smoothstep(0, 0.3, Math.abs(elev))) * smoothstep(-0.25, 0.05, elev);
-    const col = this.skyCol.copy(this.skyNight).lerp(this.skyDay, day).lerp(this.skySet, set * 0.55);
+  updateSky(dt = 0) {
+    const L = this.gfx.updateSky(this.dayTime, this.camera, dt);
+    const { elev, sd, day, set } = L;
     const cam = this.camera.position;
-    const under = cam.y < 0;
+    const under = cam.y < -0.05;
+    this.underwater = under;
+    this.gfx.sky.visible = !under;
     if (under) {
-      this.scene.background.copy(this.skyWater).multiplyScalar(0.3 + day * 0.7);
-      this.scene.fog.color.copy(this.scene.background);
+      this.scene.fog.color.copy(this.waterFog).multiplyScalar(0.25 + day * 0.75);
       this.scene.fog.near = 0.5;
-      this.scene.fog.far = 28;
+      this.scene.fog.far = 26;
+      this.scene.background = this.scene.fog.color;
     } else {
-      this.scene.background.copy(col);
-      this.scene.fog.color.copy(col);
-      this.scene.fog.near = 50;
-      this.scene.fog.far = 240;
+      this.scene.fog.color.copy(L.fog);
+      this.scene.fog.near = 30;
+      this.scene.fog.far = 330;
+      this.scene.background = null;
     }
     const p = this.player.pos;
     const lightDir = elev > -0.05 ? sd : sd.clone().negate();
-    this.sun.position.set(p.x + lightDir.x * 100, p.y + Math.max(0.15, lightDir.y) * 100, p.z + lightDir.z * 100);
+    this.sun.position.set(p.x + lightDir.x * 120, p.y + Math.max(0.12, lightDir.y) * 120, p.z + lightDir.z * 120);
     this.sun.target.position.set(p.x, p.y, p.z);
     if (elev > -0.05) {
-      this.sun.color.setHex(0xfff1d6).lerp(new THREE.Color(0xffa060), set);
-      this.sun.intensity = 0.2 + 2.3 * day;
+      this.sun.color.setHex(0xfff0d8).lerp(new THREE.Color(0xff9a50), set * 0.8);
+      this.sun.intensity = 0.2 + 3.4 * day;
     } else {
-      this.sun.color.setHex(0x9fb4ff);
-      this.sun.intensity = 0.45;
+      this.sun.color.setHex(0x8fa4d8);
+      this.sun.intensity = 0.5;
     }
-    this.hemi.intensity = 0.3 + 0.85 * day;
-    this.hemi.color.setHex(0xcfe8ff).lerp(new THREE.Color(0x5a6aa0), 1 - day);
-    this.vmHemi.intensity = 0.5 + 1.2 * day;
-    this.sunDisc.position.copy(cam).addScaledVector(sd, 450);
-    this.sunDisc.visible = elev > -0.1;
-    this.moonDisc.position.copy(cam).addScaledVector(sd, -450);
-    this.moonDisc.visible = elev < 0.1;
-    this.world.waterMat.color.setHex(0x2a78a0).multiplyScalar(0.35 + 0.65 * day);
-    this.cloudMat.emissive.setHex(0x555555).multiplyScalar(day);
-    this.cloudMat.color.setHex(0xffffff).lerp(this.skySet, set * 0.4);
+    const env = this.gfx.q.env;
+    this.hemi.intensity = env ? 0.15 + 0.35 * day : 0.45 + 1.0 * day;
+    this.hemi.color.setHex(0xc8d8e8).lerp(new THREE.Color(0x4a5a90), 1 - day);
+    this.vmHemi.intensity = 0.35 + 1.25 * day;
+    this.vmDir.intensity = 0.2 + 1.0 * day;
+    const wn = this.world.waterNormal;
+    wn.offset.x += dt * 0.012;
+    wn.offset.y += dt * 0.007;
     // огонь
     const f = this.building.nearestFire(p);
     if (f) {
-      this.fireLight.position.set(f.x, f.y + 1, f.z);
-      this.fireLight.intensity = (8 + Math.sin(performance.now() * 0.02) * 1.5) * (1.2 - day);
+      this.fireLight.position.set(f.x, f.y + 0.8, f.z);
+      this.fireLight.intensity = (14 + Math.sin(performance.now() * 0.02) * 2 + Math.sin(performance.now() * 0.047) * 1.5) * (1.25 - day);
     } else {
       this.fireLight.intensity = 0;
     }
@@ -1222,8 +1215,10 @@ class Game {
     else if (this.state === 'menu') {
       // медленный облёт в меню
       this.player.yaw += dt * 0.05;
+      wind.value += dt;
       this.updateCamera();
-      this.updateSky();
+      this.updateSky(dt);
+      if (this.world.grass) this.world.grass.update(this.player.pos);
     }
     this.render();
   }
@@ -1236,10 +1231,8 @@ class Game {
       if (t.t <= 0) { this.timers.splice(i, 1); t.fn(); }
     }
     this.dayTime = (this.dayTime + dt / DAY_LENGTH) % 1;
-    for (const c of this.clouds.children) {
-      c.position.x += dt * 2;
-      if (c.position.x > 350) c.position.x = -350;
-    }
+    wind.value += dt;
+    this.hurtFx = Math.max(0, this.hurtFx - dt * 2.5);
 
     if (p.alive) {
       this.movePlayer(dt);
@@ -1281,7 +1274,7 @@ class Game {
     this.ents.update(dt);
     this.ents.updateFx(dt);
     this.updateViewModel(dt);
-    this.updateSky();
+    this.updateSky(dt);
     if (this.invDirty) { this.invDirty = false; this.ui.refresh(); }
     this.ui.update(dt);
 
@@ -1339,12 +1332,8 @@ class Game {
   }
 
   render() {
-    this.renderer.clear();
-    this.renderer.render(this.scene, this.camera);
-    if (this.state === 'play' && this.vm && this.vm.visible) {
-      this.renderer.clearDepth();
-      this.renderer.render(this.vmScene, this.vmCamera);
-    }
+    const drawVm = this.state === 'play' && this.vm && this.vm.visible;
+    this.gfx.render(this.scene, this.camera, this.vmScene, this.vmCamera, drawVm, performance.now() / 1000, this.hurtFx, this.underwater);
   }
 
   // ---------- Сохранение ----------

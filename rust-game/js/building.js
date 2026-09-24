@@ -2,7 +2,9 @@
 import * as THREE from './three.module.min.js';
 import { Inventory, ITEMS } from './items.js';
 import { rayBox, boxesOverlap } from './util.js';
-import { colorMat, mergeGeos, mat, vertexMat } from './world.js';
+import { colorMat } from './world.js';
+import { worldBox } from './gfx.js';
+import { rockGeo, mat4 } from './models.js';
 
 export const PIECES = {
   foundation: { name: 'Фундамент', mult: 1 },
@@ -77,15 +79,8 @@ const toAABB = (b) => ({
 const cat = (type) => (type === 'foundation' || type === 'floor' ? 'cell' : type === 'wall' || type === 'doorway' ? 'edge' : type);
 const key = (c, x, y, z) => `${c}:${Math.round(x * 2)}:${Math.round(y * 2)}:${Math.round(z * 2)}`;
 
-const tierMats = TIERS.map((t, i) => {
-  const m = new THREE.MeshLambertMaterial({ color: t.color, flatShading: true });
-  if (i === 0) { m.transparent = true; m.opacity = 0.88; }
-  return m;
-});
 const ghostOk = new THREE.MeshBasicMaterial({ color: 0x44ff66, transparent: true, opacity: 0.35, depthWrite: false });
 const ghostBad = new THREE.MeshBasicMaterial({ color: 0xff4444, transparent: true, opacity: 0.35, depthWrite: false });
-const doorMat = new THREE.MeshLambertMaterial({ color: 0x6b4423, flatShading: true });
-const flameMat = new THREE.MeshBasicMaterial({ color: 0xffa030 });
 const boxGeoCache = new Map();
 function boxGeo(sx, sy, sz) {
   const k = `${sx}|${sy}|${sz}`;
@@ -97,6 +92,7 @@ function boxGeo(sx, sy, sz) {
 export class Building {
   constructor(game) {
     this.game = game;
+    this.M = game.gfx.M;
     this.world = game.world;
     this.scene = game.scene;
     this.pieces = [];
@@ -274,6 +270,7 @@ export class Building {
     this.pieces.push(p);
     this.buildPieceMesh(p);
     this.buildPieceCols(p);
+    if (this.world.grass) this.world.grass.dirty = true;
     return p;
   }
 
@@ -285,17 +282,25 @@ export class Building {
       g.position.set(p.x - a[0] * 0.6, p.y, p.z - a[2] * 0.6);
       const base = p.rot % 2 === 0 ? 0 : -Math.PI / 2;
       g.rotation.y = p.open ? base - Math.PI / 2 : base;
-      const panel = new THREE.Mesh(boxGeo(1.18, 2.18, 0.08), doorMat);
+      const panel = new THREE.Mesh(worldBox(1.18, 2.18, 0.08, 1.5), this.M.door);
       panel.position.set(0.6, 1.1, 0);
-      const handle = new THREE.Mesh(boxGeo(0.06, 0.06, 0.2), colorMat(0x333333));
+      const handle = new THREE.Mesh(boxGeo(0.05, 0.05, 0.18), this.M.rustMetal);
       handle.position.set(1.0, 1.05, 0);
       g.add(panel, handle);
+      for (const hy of [0.4, 1.8]) {
+        const hinge = new THREE.Mesh(boxGeo(0.25, 0.08, 0.1), this.M.rustMetal);
+        hinge.position.set(0.12, hy, 0);
+        g.add(hinge);
+      }
       panel.castShadow = true;
+      panel.receiveShadow = true;
       p.mesh = g;
     } else {
       const g = new THREE.Group();
       for (const b of pieceBoxes(p.type, p.x, p.y, p.z, p.rot)) {
-        const m = new THREE.Mesh(boxGeo(b.sx, b.sy, b.sz), tierMats[p.tier]);
+        const tm = this.M.tiers[p.tier];
+        const m = new THREE.Mesh(worldBox(b.sx, b.sy, b.sz, 3), tm);
+        if (tm.userData.depth) m.customDepthMaterial = tm.userData.depth;
         m.position.set(b.cx, b.cy, b.cz);
         m.castShadow = true;
         m.receiveShadow = true;
@@ -428,6 +433,7 @@ export class Building {
     const s = def.size;
     const sx = d.rot % 2 ? s[2] : s[0], sz = d.rot % 2 ? s[0] : s[2];
     d.box = { minX: d.x - sx / 2, minY: d.y, minZ: d.z - sz / 2, maxX: d.x + sx / 2, maxY: d.y + s[1], maxZ: d.z + sz / 2 };
+    if (this.world.grass) this.world.grass.dirty = true;
     if (def.collide) d.col = this.world.addCollider(d.box.minX, d.box.minY, d.box.minZ, d.box.maxX, d.box.maxY, d.box.maxZ, d);
     this.deploys.push(d);
     this.setOn(d, d.on);
@@ -448,44 +454,57 @@ export class Building {
   }
 
   deployMesh(d) {
+    const M = this.M;
     const g = new THREE.Group();
     g.position.set(d.x, d.y, d.z);
     g.rotation.y = d.rot * Math.PI / 2;
+    const add = (geo, m, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) => {
+      const mesh = new THREE.Mesh(geo, m);
+      mesh.position.set(x, y, z);
+      mesh.rotation.set(rx, ry, rz);
+      g.add(mesh);
+      return mesh;
+    };
+    const flames = (n, spread, y, size) => {
+      const f = new THREE.Group();
+      for (let i = 0; i < n; i++) {
+        const sp = new THREE.Sprite(M.flame);
+        sp.position.set((Math.random() - 0.5) * spread, y + Math.random() * 0.2, (Math.random() - 0.5) * spread);
+        sp.scale.setScalar(size * (0.7 + Math.random() * 0.5));
+        sp.userData.base = sp.position.y;
+        sp.userData.ph = Math.random() * 6;
+        f.add(sp);
+      }
+      g.add(f);
+      return f;
+    };
     if (d.type === 'campfire') {
-      const parts = [];
-      for (let i = 0; i < 7; i++) {
-        const a = (i / 7) * Math.PI * 2;
-        parts.push({ geo: new THREE.IcosahedronGeometry(0.15, 0), color: 0x77736c, matrix: mat([Math.cos(a) * 0.45, 0.08, Math.sin(a) * 0.45]) });
+      if (!Building.stoneGeo) Building.stoneGeo = rockGeo(505);
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        const st = add(Building.stoneGeo, M.rock, Math.cos(a) * 0.45, 0.05, Math.sin(a) * 0.45, 0, a, 0);
+        st.scale.set(0.16, 0.14, 0.13);
       }
-      for (let i = 0; i < 3; i++) {
-        parts.push({ geo: new THREE.CylinderGeometry(0.07, 0.07, 0.8, 5), color: 0x5a3d25, matrix: mat([0, 0.12, 0], [Math.PI / 2, (i / 3) * Math.PI, 0]) });
-      }
-      g.add(new THREE.Mesh(mergeGeos(parts), vertexMat));
-      const fl = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.7, 6), flameMat);
-      fl.position.y = 0.45;
-      g.add(fl);
-      d.flame = fl;
+      const log = new THREE.CylinderGeometry(0.07, 0.08, 0.85, 7);
+      for (let i = 0; i < 4; i++) add(log, M.bark, 0, 0.18, 0, 0.9, (i / 4) * Math.PI, 0).position.y = 0.2;
+      d.flame = flames(5, 0.25, 0.35, 0.55);
     } else if (d.type === 'furnace') {
-      g.add(new THREE.Mesh(mergeGeos([
-        { geo: new THREE.CylinderGeometry(0.45, 0.6, 1.3, 8), color: 0x8b8680, matrix: mat([0, 0.65, 0]), jitter: 0.06 },
-        { geo: new THREE.CylinderGeometry(0.18, 0.25, 0.5, 6), color: 0x77726c, matrix: mat([0, 1.5, 0]) },
-        { geo: new THREE.BoxGeometry(0.4, 0.35, 0.1), color: 0x222222, matrix: mat([0, 0.35, 0.55]) },
-      ]), vertexMat));
-      const fl = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.28, 0.05), flameMat);
-      fl.position.set(0, 0.35, 0.58);
-      g.add(fl);
-      d.flame = fl;
+      add(new THREE.CylinderGeometry(0.42, 0.58, 1.3, 10), M.stoneBlocks, 0, 0.65, 0);
+      add(new THREE.CylinderGeometry(0.16, 0.22, 0.5, 8), M.stoneBlocks, 0, 1.52, 0);
+      add(boxGeo(0.42, 0.36, 0.12), colorMat(0x151210), 0, 0.36, 0.5);
+      d.flame = flames(3, 0.2, 0.36, 0.35);
+      d.flame.position.z = 0.52;
     } else if (d.type === 'box') {
-      g.add(new THREE.Mesh(mergeGeos([
-        { geo: new THREE.BoxGeometry(1.2, 0.7, 0.7), color: 0x8a6236, matrix: mat([0, 0.35, 0]) },
-        { geo: new THREE.BoxGeometry(1.24, 0.12, 0.74), color: 0x6b4a27, matrix: mat([0, 0.75, 0]) },
-        { geo: new THREE.BoxGeometry(0.2, 0.15, 0.05), color: 0x333333, matrix: mat([0, 0.6, 0.37]) },
-      ]), vertexMat));
+      add(worldBox(1.2, 0.7, 0.7, 1.2), M.crate, 0, 0.35, 0);
+      add(worldBox(1.24, 0.1, 0.74, 1.2), M.crate, 0, 0.74, 0);
+      add(boxGeo(0.16, 0.14, 0.04), M.rustMetal, 0, 0.6, 0.37);
+      for (const dx of [-0.56, 0.56]) add(worldBox(0.06, 0.72, 0.72, 1.2), M.rustMetal, dx, 0.36, 0);
     } else if (d.type === 'sleeping_bag') {
-      g.add(new THREE.Mesh(mergeGeos([
-        { geo: new THREE.BoxGeometry(0.85, 0.12, 1.7), color: 0x4a6a3a, matrix: mat([0, 0.06, 0.1]) },
-        { geo: new THREE.BoxGeometry(0.6, 0.12, 0.3), color: 0xd8d0c0, matrix: mat([0, 0.08, -0.8]) },
-      ]), vertexMat));
+      if (!Building.bagMat) Building.bagMat = M.cloth.clone(), Building.bagMat.color.setHex(0x7a8a5a);
+      const b = add(new THREE.CapsuleGeometry(0.36, 1.25, 4, 10), Building.bagMat, 0, 0.12, 0.05, Math.PI / 2, 0, 0);
+      b.scale.set(1, 1, 0.3);
+      const pillow = add(new THREE.CapsuleGeometry(0.12, 0.35, 3, 8), M.cloth, 0, 0.14, -0.72, 0, 0, Math.PI / 2);
+      pillow.scale.set(1, 1, 1);
     }
     g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     return g;
@@ -502,7 +521,15 @@ export class Building {
   update(dt, t) {
     for (const d of this.deploys) {
       if (!d.on) continue;
-      if (d.flame) d.flame.scale.set(1, 0.8 + Math.sin(t * 20 + d.x) * 0.2, 1);
+      if (d.flame) {
+        for (const sp of d.flame.children) {
+          const k = (t * 1.6 + sp.userData.ph) % 1;
+          sp.position.y = sp.userData.base + k * 0.35;
+          sp.material.opacity = 1;
+          const sc = (1 - k) * 0.55 + 0.15;
+          sp.scale.setScalar(sc);
+        }
+      }
       d.tick += dt;
       if (d.tick < 1) continue;
       d.tick -= 1;

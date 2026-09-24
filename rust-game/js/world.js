@@ -4,37 +4,13 @@ import {
   makePerlin, fbm, smoothstep, lerp, clamp, mulberry32, SpatialGrid, rayBox, rayCylY, raySphere,
 } from './util.js';
 import { Inventory, rollLoot } from './items.js';
+import { worldBox, staticMaterial, Grass } from './gfx.js';
+import { pineGeos, birchGeos, rockGeo, hempGeo, bushGeo, mushroomGeo, barrelGeo } from './models.js';
 
 export const WORLD = 440;
 export const HALF = WORLD / 2;
 export const SEG = 220;
 export const STEP = WORLD / SEG;
-
-// ---- Склейка простых геометрий в одну с вертексными цветами ----
-const tmpColor = new THREE.Color();
-export function mergeGeos(parts) {
-  const pos = [], nor = [], col = [];
-  for (const p of parts) {
-    let g = p.geo.index ? p.geo.toNonIndexed() : p.geo.clone();
-    if (p.matrix) g.applyMatrix4(p.matrix);
-    g.computeVertexNormals();
-    const pa = g.attributes.position.array;
-    const na = g.attributes.normal.array;
-    tmpColor.set(p.color);
-    for (let i = 0; i < pa.length; i += 3) {
-      pos.push(pa[i], pa[i + 1], pa[i + 2]);
-      nor.push(na[i], na[i + 1], na[i + 2]);
-      // лёгкий разброс оттенка по граням для «лоу-поли» вида
-      const v = p.jitter ? 1 + (((i / 9) | 0) % 3 - 1) * p.jitter : 1;
-      col.push(tmpColor.r * v, tmpColor.g * v, tmpColor.b * v);
-    }
-  }
-  const out = new THREE.BufferGeometry();
-  out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  out.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
-  out.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  return out;
-}
 
 export function mat(pos = [0, 0, 0], rot = [0, 0, 0], scale = [1, 1, 1]) {
   const m = new THREE.Matrix4();
@@ -54,16 +30,17 @@ const NODE = {
   hemp: { pickup: 'cloth', n: [8, 12], label: 'Собрать коноплю' },
   mushroom: { pickup: 'mushroom', n: [1, 2], label: 'Собрать гриб' },
   barrel: { hp: 30 },
+  boulder: { snd: 'stone' },
 };
 export { NODE };
 
-const vertexMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+const vertexMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
 export { vertexMat };
 const matCache = new Map();
 export function colorMat(color) {
   let m = matCache.get(color);
   if (!m) {
-    m = new THREE.MeshLambertMaterial({ color, flatShading: true });
+    m = new THREE.MeshStandardMaterial({ color, roughness: 0.85 });
     matCache.set(color, m);
   }
   return m;
@@ -76,8 +53,11 @@ const _p = new THREE.Vector3();
 const _s = new THREE.Vector3();
 
 export class World {
-  constructor(scene, seed = 20240) {
+  constructor(scene, gfx, seed = 20240) {
     this.scene = scene;
+    this.gfx = gfx;
+    this.M = gfx.M;
+    this.T = gfx.T;
     this.seed = seed;
     this.rng = mulberry32(seed);
     this.n1 = makePerlin(seed);
@@ -99,6 +79,7 @@ export class World {
     this.buildWater();
     this.buildMonuments();
     this.spawnNodes();
+    if (gfx.q.grass > 0) this.grass = new Grass(this, scene, this.M.grass, gfx.q.grass, gfx.q.grassCell);
   }
 
   // ---------- Высоты ----------
@@ -224,10 +205,37 @@ export class World {
     return c;
   }
 
+  // Веса текстур ландшафта: трава, земля, скала, песок.
+  splatAt(x, z, h, sl) {
+    const rock = Math.max(smoothstep(0.75, 1.15, sl), smoothstep(27, 34, h));
+    const sand = smoothstep(2.5, 1.5, h);
+    const patch = smoothstep(0.1, 0.55, this.n3(x * 0.035 + 3, z * 0.035 + 3));
+    const forest = smoothstep(-0.05, 0.4, this.n3(x * 0.015 + 7, z * 0.015 + 7)) * 0.45;
+    let dirt = Math.max(patch * 0.85, forest, smoothstep(14, 24, h) * 0.35);
+    for (const m of this.monuments) {
+      const d = Math.hypot(x - m.x, z - m.z);
+      dirt = Math.max(dirt, smoothstep(m.r * 1.15, m.r * 0.75, d));
+    }
+    const wr = rock;
+    const rem = 1 - wr;
+    const ws = sand * rem;
+    const rem2 = rem - ws;
+    const wd = dirt * rem2;
+    return [rem2 - wd, wd, wr, ws];
+  }
+
+  grassAt(x, z) {
+    const fx = (x + HALF) / STEP, fz = (z + HALF) / STEP;
+    const ix = Math.round(fx), iz = Math.round(fz);
+    if (ix < 0 || iz < 0 || ix > SEG || iz > SEG) return 0;
+    return this.G[iz * (SEG + 1) + ix];
+  }
+
   buildTerrainMesh() {
     const N = SEG + 1;
     const pos = new Float32Array(N * N * 3);
-    const col = new Float32Array(N * N * 3);
+    const spl = new Float32Array(N * N * 4);
+    this.G = new Float32Array(N * N);
     for (let iz = 0; iz < N; iz++) {
       for (let ix = 0; ix < N; ix++) {
         const i = iz * N + ix;
@@ -236,10 +244,9 @@ export class World {
         pos[i * 3] = x;
         pos[i * 3 + 1] = h;
         pos[i * 3 + 2] = z;
-        const c = this.terrainColor(x, z, h, this.slope(x, z));
-        col[i * 3] = c.r;
-        col[i * 3 + 1] = c.g;
-        col[i * 3 + 2] = c.b;
+        const w = this.splatAt(x, z, h, this.slope(x, z));
+        spl.set(w, i * 4);
+        this.G[i] = w[0];
       }
     }
     const idx = [];
@@ -251,26 +258,62 @@ export class World {
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    g.setAttribute('splat', new THREE.BufferAttribute(spl, 4));
     g.setIndex(idx);
     g.computeVertexNormals();
-    this.terrain = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+    this.terrain = new THREE.Mesh(g, this.M.terrain);
     this.terrain.receiveShadow = true;
     this.scene.add(this.terrain);
   }
 
+  // Вода: у берега светлее и прозрачнее, вдали — тёмная.
   buildWater() {
-    const geo = new THREE.PlaneGeometry(3000, 3000, 1, 1);
-    geo.rotateX(-Math.PI / 2);
-    this.waterMat = new THREE.MeshPhongMaterial({
-      color: 0x2a78a0, transparent: true, opacity: 0.8, shininess: 90, specular: 0x6688aa, depthWrite: false,
+    const E = HALF + 90, SEGW = 130;
+    const inner = new THREE.PlaneGeometry(E * 2, E * 2, SEGW, SEGW);
+    inner.rotateX(-Math.PI / 2);
+    const cols = [];
+    const shallow = [0.16, 0.36, 0.34], deep = [0.03, 0.1, 0.14], foam = [0.75, 0.8, 0.78];
+    const pa = inner.attributes.position.array;
+    const uvs = inner.attributes.uv.array;
+    for (let i = 0, j = 0; i < pa.length; i += 3, j += 2) {
+      const depth = -this.getHeight(pa[i], pa[i + 2]);
+      const t = smoothstep(0.5, 8, depth);
+      let c = [lerp(shallow[0], deep[0], t), lerp(shallow[1], deep[1], t), lerp(shallow[2], deep[2], t)];
+      let a = lerp(0.55, 0.93, t);
+      const f = smoothstep(0.8, 0.0, depth) * (depth > -1.5 ? 1 : 0);
+      c = [lerp(c[0], foam[0], f * 0.7), lerp(c[1], foam[1], f * 0.7), lerp(c[2], foam[2], f * 0.7)];
+      a = lerp(a, 0.8, f * 0.5);
+      cols.push(c[0], c[1], c[2], a);
+      uvs[j] = pa[i] / 14; uvs[j + 1] = pa[i + 2] / 14;
+    }
+    inner.setAttribute('color', new THREE.Float32BufferAttribute(cols, 4));
+    const outerParts = [];
+    const F = 2500;
+    for (const [cx, cz, sx, sz] of [[0, (E + F) / 2, F * 2 + E * 2, F - E], [0, -(E + F) / 2, F * 2 + E * 2, F - E], [(E + F) / 2, 0, F - E, E * 2], [-(E + F) / 2, 0, F - E, E * 2]]) {
+      const g = new THREE.PlaneGeometry(sx, sz, 4, 4);
+      g.rotateX(-Math.PI / 2);
+      g.translate(cx, 0, cz);
+      const pp = g.attributes.position.array, uu = g.attributes.uv.array;
+      for (let i = 0, j = 0; i < pp.length; i += 3, j += 2) { uu[j] = pp[i] / 14; uu[j + 1] = pp[i + 2] / 14; }
+      const c = [];
+      for (let i = 0; i < pp.length / 3; i++) c.push(deep[0], deep[1], deep[2], 0.93);
+      g.setAttribute('color', new THREE.Float32BufferAttribute(c, 4));
+      outerParts.push(g);
+    }
+    this.waterNormal = this.T.water;
+    this.waterMat = new THREE.MeshStandardMaterial({
+      vertexColors: true, transparent: true, roughness: 0.06, metalness: 0.1,
+      normalMap: this.waterNormal, normalScale: new THREE.Vector2(0.35, 0.35), depthWrite: false,
     });
-    this.water = new THREE.Mesh(geo, this.waterMat);
-    this.water.renderOrder = 1;
-    this.scene.add(this.water);
+    const group = new THREE.Group();
+    group.add(new THREE.Mesh(inner, this.waterMat));
+    for (const g of outerParts) group.add(new THREE.Mesh(g, this.waterMat));
+    group.children.forEach((m) => { m.renderOrder = 1; m.receiveShadow = true; });
+    this.water = group;
+    this.scene.add(group);
     const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(3000, 3000).rotateX(-Math.PI / 2),
-      new THREE.MeshLambertMaterial({ color: 0x9c8a62 }),
+      new THREE.PlaneGeometry(6000, 6000).rotateX(-Math.PI / 2),
+      new THREE.MeshLambertMaterial({ color: 0x5c5040 }),
     );
     floor.position.y = -14;
     this.scene.add(floor);
@@ -288,7 +331,7 @@ export class World {
   }
 
   addStatic(cx, cy, cz, sx, sy, sz, color, collide = true, rotY = 0) {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), colorMat(color));
+    const mesh = new THREE.Mesh(worldBox(sx, sy, sz, 3), staticMaterial(this.M, color));
     mesh.position.set(cx, cy, cz);
     mesh.rotation.y = rotY;
     mesh.castShadow = true;
@@ -328,16 +371,21 @@ export class World {
   addCrate(x, y, z, loot) {
     const military = loot === 'military';
     const sx = military ? 1.4 : 1.0, sy = military ? 0.6 : 0.8, sz = military ? 0.7 : 0.8;
-    const geo = mergeGeos([
-      { geo: new THREE.BoxGeometry(sx, sy, sz), color: military ? 0x3f5a2e : 0x8a6236, matrix: mat([0, sy / 2, 0]) },
-      { geo: new THREE.BoxGeometry(sx + 0.04, 0.08, sz + 0.04), color: military ? 0x2d3f22 : 0x5b3e21, matrix: mat([0, sy - 0.1, 0]) },
-      { geo: new THREE.BoxGeometry(0.08, sy * 0.9, sz + 0.03), color: military ? 0x2d3f22 : 0x5b3e21, matrix: mat([-sx / 3, sy / 2, 0]) },
-      { geo: new THREE.BoxGeometry(0.08, sy * 0.9, sz + 0.03), color: military ? 0x2d3f22 : 0x5b3e21, matrix: mat([sx / 3, sy / 2, 0]) },
-    ]);
-    const mesh = new THREE.Mesh(geo, vertexMat);
+    const m = military ? this.M.crateMil : this.M.crate;
+    const mesh = new THREE.Group();
+    const body = new THREE.Mesh(worldBox(sx, sy, sz, 1.2), m);
+    body.position.y = sy / 2;
+    const lid = new THREE.Mesh(worldBox(sx + 0.05, 0.07, sz + 0.05, 1.2), m);
+    lid.position.y = sy - 0.06;
+    mesh.add(body, lid);
+    for (const dx of [-sx / 2 + 0.04, sx / 2 - 0.04]) {
+      const band = new THREE.Mesh(worldBox(0.07, sy, sz + 0.04, 1.2), this.M.rustMetal);
+      band.position.set(dx, sy / 2, 0);
+      mesh.add(band);
+    }
+    mesh.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     mesh.position.set(x, y, z);
     mesh.rotation.y = Math.floor(this.rng() * 4) * Math.PI / 2;
-    mesh.castShadow = true;
     this.scene.add(mesh);
     const crate = {
       kind: 'crate', loot, x, y, z, mesh, inv: new Inventory(12), respawnAt: 0,
@@ -398,7 +446,7 @@ export class World {
         this.addStatic(tx, y + 10.1, tz, 4, 0.3, 4, 0x5c5a55);
         const dish = new THREE.Mesh(
           new THREE.SphereGeometry(2.2, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2.5),
-          new THREE.MeshLambertMaterial({ color: 0xd8d8d0, side: THREE.DoubleSide, flatShading: true }),
+          new THREE.MeshStandardMaterial({ color: 0xc8c8c0, side: THREE.DoubleSide, roughness: 0.5, metalness: 0.5 }),
         );
         dish.position.set(tx, y + 11.6, tz);
         dish.rotation.x = Math.PI * 0.75;
@@ -484,76 +532,31 @@ export class World {
 
   // ---------- Ресурсы ----------
   spawnNodes() {
-    const r = this.rng;
-    const pine = mergeGeos([
-      { geo: new THREE.CylinderGeometry(0.18, 0.3, 2.4, 6), color: 0x5a3d25, matrix: mat([0, 1.2, 0]) },
-      { geo: new THREE.ConeGeometry(1.7, 2.6, 7), color: 0x2f5a2c, matrix: mat([0, 2.9, 0]), jitter: 0.08 },
-      { geo: new THREE.ConeGeometry(1.3, 2.3, 7), color: 0x356331, matrix: mat([0, 4.0, 0]), jitter: 0.08 },
-      { geo: new THREE.ConeGeometry(0.85, 1.9, 7), color: 0x3b6b35, matrix: mat([0, 5.0, 0]), jitter: 0.08 },
-    ]);
-    const oak = mergeGeos([
-      { geo: new THREE.CylinderGeometry(0.22, 0.34, 2.8, 6), color: 0x5e4128, matrix: mat([0, 1.4, 0]) },
-      { geo: new THREE.IcosahedronGeometry(1.8, 0), color: 0x4f7f33, matrix: mat([0, 3.8, 0], [0.3, 0.5, 0], [1, 0.85, 1]), jitter: 0.1 },
-      { geo: new THREE.IcosahedronGeometry(1.2, 0), color: 0x5a8c3a, matrix: mat([0.7, 4.6, 0.3], [0.1, 0.2, 0.4]), jitter: 0.1 },
-      { geo: new THREE.IcosahedronGeometry(1.1, 0), color: 0x4a7a30, matrix: mat([-0.8, 4.2, -0.4], [0.5, 0.1, 0.2]), jitter: 0.1 },
-    ]);
-    const rockGeo = (c1, c2, spots) => {
-      const g = new THREE.IcosahedronGeometry(1, 0);
-      const parts = [{ geo: g, color: c1, jitter: 0.12 }];
-      for (let i = 0; i < spots; i++) {
-        const a = (i / spots) * Math.PI * 2;
-        parts.push({
-          geo: new THREE.IcosahedronGeometry(0.32, 0), color: c2,
-          matrix: mat([Math.cos(a) * 0.72, 0.35 + (i % 2) * 0.3, Math.sin(a) * 0.72]),
-        });
-      }
-      return mergeGeos(parts);
-    };
-    const hempGeo = mergeGeos([
-      { geo: new THREE.ConeGeometry(0.25, 1.2, 5), color: 0x5f9a3a, matrix: mat([0, 0.6, 0]) },
-      { geo: new THREE.ConeGeometry(0.2, 1.0, 5), color: 0x6fae45, matrix: mat([0.25, 0.5, 0.1], [0, 0, 0.3]) },
-      { geo: new THREE.ConeGeometry(0.2, 1.0, 5), color: 0x6fae45, matrix: mat([-0.2, 0.5, -0.15], [0.2, 0, -0.3]) },
-      { geo: new THREE.SphereGeometry(0.12, 5, 4), color: 0xb9d06b, matrix: mat([0, 1.25, 0]) },
-    ]);
-    const mushGeo = mergeGeos([
-      { geo: new THREE.CylinderGeometry(0.05, 0.07, 0.25, 5), color: 0xeae2cf, matrix: mat([0, 0.12, 0]) },
-      { geo: new THREE.ConeGeometry(0.2, 0.15, 7), color: 0xb8342a, matrix: mat([0, 0.3, 0]) },
-      { geo: new THREE.CylinderGeometry(0.04, 0.06, 0.18, 5), color: 0xeae2cf, matrix: mat([0.18, 0.09, 0.1]) },
-      { geo: new THREE.ConeGeometry(0.14, 0.11, 7), color: 0xb8342a, matrix: mat([0.18, 0.22, 0.1]) },
-    ]);
-    const barrelGeo = mergeGeos([
-      { geo: new THREE.CylinderGeometry(0.42, 0.42, 1.1, 10), color: 0xffffff, matrix: mat([0, 0.55, 0]) },
-      { geo: new THREE.CylinderGeometry(0.44, 0.44, 0.08, 10), color: 0x555555, matrix: mat([0, 0.3, 0]) },
-      { geo: new THREE.CylinderGeometry(0.44, 0.44, 0.08, 10), color: 0x555555, matrix: mat([0, 0.8, 0]) },
-    ]);
-    const bushGeo = mergeGeos([
-      { geo: new THREE.IcosahedronGeometry(0.7, 0), color: 0x46702c, matrix: mat([0, 0.4, 0], [0, 0, 0], [1, 0.7, 1]), jitter: 0.12 },
-      { geo: new THREE.IcosahedronGeometry(0.5, 0), color: 0x527d33, matrix: mat([0.4, 0.5, 0.2]), jitter: 0.12 },
-    ]);
-
+    const r = this.rng, M = this.M;
     const plan = [];
-    const tryPlace = (kind, count, test) => {
+    const tryPlace = (kind, count, test, pad = 5) => {
       let placed = 0;
       for (let i = 0; i < count * 8 && placed < count; i++) {
         const x = (r() * 2 - 1) * HALF * 0.92, z = (r() * 2 - 1) * HALF * 0.92;
         const h = this.getHeight(x, z);
         if (!test(x, z, h)) continue;
-        if (this.nearMonument(x, z, kind === 'barrel' ? -2 : 5)) continue;
+        if (this.nearMonument(x, z, pad)) continue;
         plan.push({ kind, x, z, y: h });
         placed++;
       }
     };
     const forest = (x, z) => this.n3(x * 0.015 + 7, z * 0.015 + 7);
-    tryPlace('pine', 520, (x, z, h) => h > 6 && h < 27 && this.slope(x, z) < 0.7 && forest(x, z) > -0.05);
-    tryPlace('oak', 300, (x, z, h) => h > 2.5 && h < 16 && this.slope(x, z) < 0.5 && forest(x, z) > -0.2);
+    tryPlace('pineA', 330, (x, z, h) => h > 5 && h < 28 && this.slope(x, z) < 0.7 && forest(x, z) > -0.05);
+    tryPlace('pineB', 260, (x, z, h) => h > 4 && h < 26 && this.slope(x, z) < 0.7 && forest(x, z) > -0.15);
+    tryPlace('birch', 220, (x, z, h) => h > 2.5 && h < 16 && this.slope(x, z) < 0.5 && forest(x, z) > -0.25);
     tryPlace('stone', 140, (x, z, h) => h > 1 && this.slope(x, z) < 0.9);
     tryPlace('metal', 90, (x, z, h) => h > 5 && this.slope(x, z) < 0.9);
     tryPlace('sulfur', 70, (x, z, h) => h > 9 && this.slope(x, z) < 0.9);
+    tryPlace('boulder', 80, (x, z, h) => h > 3 && this.slope(x, z) > 0.3, 12);
     tryPlace('hemp', 170, (x, z, h) => h > 2.2 && h < 18 && this.slope(x, z) < 0.45);
     tryPlace('mushroom', 100, (x, z, h) => h > 3 && h < 20 && forest(x, z) > 0);
-    tryPlace('bush', 400, (x, z, h) => h > 2.3 && h < 22 && this.slope(x, z) < 0.6);
-    tryPlace('barrel', 45, (x, z, h) => h > 1.5 && h < 18 && this.slope(x, z) < 0.3);
-    // бочки у монументов
+    tryPlace('bush', 380, (x, z, h) => h > 2.3 && h < 22 && this.slope(x, z) < 0.6);
+    tryPlace('barrel', 45, (x, z, h) => h > 1.5 && h < 18 && this.slope(x, z) < 0.3, -2);
     for (const m of this.monuments) {
       for (let i = 0; i < 7; i++) {
         const a = r() * Math.PI * 2, d = m.r * (0.3 + r() * 0.6);
@@ -563,71 +566,91 @@ export class World {
       }
     }
 
+    const pineA = pineGeos(r, 12.5, 15, 9);
+    const pineB = pineGeos(r, 9.5, 13, 9);
+    const birch = birchGeos(r);
+    const defs = {
+      pineA: [[pineA.trunk, M.bark], [pineA.crown, M.needles, M.needlesDepth]],
+      pineB: [[pineB.trunk, M.bark], [pineB.crown, M.needles, M.needlesDepth]],
+      birch: [[birch.trunk, M.birch], [birch.crown, M.leaves, M.leavesDepth]],
+      stone: [[rockGeo(101), M.rock]],
+      metal: [[rockGeo(202, 'metal'), M.rock]],
+      sulfur: [[rockGeo(303, 'sulfur'), M.rock]],
+      boulder: [[rockGeo(404), M.rock]],
+      hemp: [[hempGeo(r), M.hemp, M.hempDepth]],
+      bush: [[bushGeo(r), M.bush]],
+      mushroom: [[mushroomGeo(), M.vcolor]],
+      barrel: [[barrelGeo(), M.barrel]],
+    };
     const count = {};
     for (const p of plan) count[p.kind] = (count[p.kind] || 0) + 1;
-    const geos = {
-      pine, oak, hemp: hempGeo, mushroom: mushGeo, barrel: barrelGeo, bush: bushGeo,
-      stone: rockGeo(0x8a8680, 0x6f6b66, 0),
-      metal: rockGeo(0x7c7873, 0xa0643a, 5),
-      sulfur: rockGeo(0x8a8474, 0xd8c23a, 5),
-    };
     this.inst = {};
     for (const k in count) {
-      const im = new THREE.InstancedMesh(geos[k], vertexMat, count[k]);
-      im.castShadow = k === 'pine' || k === 'oak' || k === 'stone' || k === 'metal' || k === 'sulfur';
-      im.receiveShadow = true;
-      im.frustumCulled = false;
-      im.count = count[k];
-      this.inst[k] = im;
-      this.scene.add(im);
+      this.inst[k] = defs[k].map(([geo, mat, depth]) => {
+        const im = new THREE.InstancedMesh(geo, mat, count[k]);
+        im.castShadow = k !== 'mushroom' && k !== 'bush';
+        im.receiveShadow = true;
+        im.frustumCulled = false;
+        if (depth) im.customDepthMaterial = depth;
+        this.scene.add(im);
+        return im;
+      });
       count[k] = 0;
     }
-    const barrelColors = [new THREE.Color(0x2f5c9a), new THREE.Color(0xa33a2a), new THREE.Color(0x4d6b35)];
+    const barrelColors = [new THREE.Color(0x4a78b8), new THREE.Color(0xc0503a), new THREE.Color(0x6a8a4a)];
     for (const p of plan) {
-      const im = this.inst[p.kind];
+      const ims = this.inst[p.kind];
       const idx = count[p.kind]++;
-      const isTree = p.kind === 'pine' || p.kind === 'oak';
+      const isTree = p.kind === 'pineA' || p.kind === 'pineB' || p.kind === 'birch';
       const kind = isTree ? 'tree' : p.kind;
       const node = {
-        kind, sub: p.kind, x: p.x, y: p.y, z: p.z, im, idx, rot: r() * Math.PI * 2,
+        kind, sub: p.kind, x: p.x, y: p.y, z: p.z, ims, idx, rot: r() * Math.PI * 2,
         s: 1, sx: 1, sy: 1, sz: 1, alive: true, amount: 0, max: 0, shake: 0, fall: -1,
       };
       if (isTree) {
-        node.s = 0.8 + r() * 0.5;
-        node.r = 0.35 * node.s; node.h = 3.2 * node.s; node.col = 0.35 * node.s;
+        node.s = 0.8 + r() * 0.45;
+        node.y -= 0.1;
+        node.r = 0.3 * node.s; node.h = 3.5 * node.s; node.col = 0.3 * node.s;
       } else if (kind === 'stone' || kind === 'metal' || kind === 'sulfur') {
-        node.s = 1;
-        node.sx = 0.9 + r() * 0.5; node.sy = 0.7 + r() * 0.4; node.sz = 0.9 + r() * 0.5;
-        node.y -= 0.25;
+        node.sx = 0.9 + r() * 0.5; node.sy = 0.8 + r() * 0.4; node.sz = 0.9 + r() * 0.5;
+        node.y -= 0.15;
         node.r = 1.0; node.col = 0.9;
+      } else if (kind === 'boulder') {
+        const b = 2.2 + r() * 3.2;
+        node.sx = b * (0.8 + r() * 0.4); node.sy = b * (0.6 + r() * 0.5); node.sz = b * (0.8 + r() * 0.4);
+        node.y -= 0.3 * node.sy;
+        node.r = 0.95; node.col = 0.85 * Math.max(node.sx, node.sz); node.colH = node.sy * 0.9;
+        node.amount = node.max = 1;
       } else if (kind === 'barrel') {
         node.r = 0.45; node.h = 1.1; node.col = 0.42; node.hp = NODE.barrel.hp;
-        im.setColorAt(idx, barrelColors[Math.floor(r() * 3)]);
+        ims[0].setColorAt(idx, barrelColors[Math.floor(r() * 3)]);
       } else if (kind === 'hemp') {
-        node.r = 0.4; node.h = 1.3;
+        node.r = 0.4; node.h = 1.3; node.s = 0.9 + r() * 0.3;
       } else if (kind === 'mushroom') {
         node.r = 0.35; node.h = 0.4;
       } else if (kind === 'bush') {
-        node.s = 0.8 + r() * 0.6;
+        node.s = 0.8 + r() * 0.7;
       }
       if (NODE[kind] && NODE[kind].amount) node.amount = node.max = NODE[kind].amount;
       this.setNodeMatrix(node);
       if (kind !== 'bush') {
         this.nodeList.push(node);
-        const rr = Math.max(node.r || 0.5, 1);
+        const rr = Math.max(node.col || 0, node.r || 0.5, 1);
         this.nodes.add(node, node.x - rr, node.z - rr, node.x + rr, node.z + rr);
       }
     }
     for (const k in this.inst) {
-      this.inst[k].instanceMatrix.needsUpdate = true;
-      if (this.inst[k].instanceColor) this.inst[k].instanceColor.needsUpdate = true;
+      for (const im of this.inst[k]) {
+        im.instanceMatrix.needsUpdate = true;
+        if (im.instanceColor) im.instanceColor.needsUpdate = true;
+      }
     }
   }
 
   setNodeMatrix(n) {
     if (!n.alive && n.fall < 0) {
       _s.set(0, 0, 0);
-    } else if (n.kind === 'stone' || n.kind === 'metal' || n.kind === 'sulfur') {
+    } else if (n.kind === 'stone' || n.kind === 'metal' || n.kind === 'sulfur' || n.kind === 'boulder') {
       const f = 0.45 + 0.55 * (n.amount / n.max);
       _s.set(n.sx * f, n.sy * f, n.sz * f);
     } else {
@@ -635,13 +658,15 @@ export class World {
     }
     let tilt = 0;
     if (n.fall >= 0) tilt = Math.min(1, n.fall) ** 2 * 1.5;
-    else if (n.shake > 0) tilt = Math.sin(this.time * 45) * n.shake * 0.12;
+    else if (n.shake > 0) tilt = Math.sin(this.time * 45) * n.shake * 0.05;
     _e.set(tilt, n.rot, 0, 'YXZ');
     _q.setFromEuler(_e);
     _p.set(n.x, n.y, n.z);
     _m.compose(_p, _q, _s);
-    n.im.setMatrixAt(n.idx, _m);
-    n.im.instanceMatrix.needsUpdate = true;
+    for (const im of n.ims) {
+      im.setMatrixAt(n.idx, _m);
+      im.instanceMatrix.needsUpdate = true;
+    }
   }
 
   killNode(n, respawn) {
@@ -679,6 +704,7 @@ export class World {
       if (!c.active && this.time > c.respawnAt && Math.hypot(c.x - playerPos.x, c.z - playerPos.z) > 25) this.fillCrate(c);
     }
     if (this.dish) this.dish.rotation.z += dt * 0.4;
+    if (this.grass) this.grass.update(playerPos);
   }
 
   // ---------- Запросы ----------

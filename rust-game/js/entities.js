@@ -12,95 +12,137 @@ export const ANIMALS = {
   wolf: { name: 'Волк', hp: 100, walk: 2.0, run: 7.3, aggro: 20, dmg: 12, meat: 30, r: 0.55, h: 1.0,
     body: [0.4, 0.45, 1.1], by: 0.75, legH: 0.55, legW: 0.1, head: 0.32, headY: 0.95, headZ: 0.7, color: 0x77746f },
   bear: { name: 'Медведь', hp: 300, walk: 1.6, run: 6.4, aggro: 14, dmg: 25, meat: 80, r: 0.9, h: 1.8,
-    body: [0.95, 0.95, 1.7], by: 1.05, legH: 0.6, legW: 0.3, head: 0.55, headY: 1.35, headZ: 1.05, color: 0x3d2a1c },
+    body: [0.95, 0.95, 1.7], by: 1.05, legH: 0.6, legW: 0.3, head: 0.55, headY: 1.35, headZ: 1.05, color: 0x4a3322 },
 };
 const ANIMAL_COUNTS = { deer: 14, boar: 12, wolf: 8, bear: 4 };
 
-function box(w, h, d, color, x = 0, y = 0, z = 0) {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), colorMat(color));
+const furMats = new Map();
+function fur(color) {
+  let m = furMats.get(color);
+  if (!m) { m = new THREE.MeshStandardMaterial({ color, roughness: 1 }); furMats.set(color, m); }
+  return m;
+}
+function part(geo, color, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) {
+  const m = new THREE.Mesh(geo, typeof color === 'number' ? fur(color) : color);
   m.position.set(x, y, z);
+  m.rotation.set(rx, ry, rz);
+  m.scale.set(sx, sy, sz);
   m.castShadow = true;
   return m;
 }
+const cap = (r, l) => new THREE.CapsuleGeometry(r, l, 4, 10);
+const sph = (r) => new THREE.SphereGeometry(r, 12, 10);
+const cone = (r, h) => new THREE.ConeGeometry(r, h, 8);
 
+// Четвероногое из капсул: тело, шея, голова, морда, уши, ноги с «шарнирами».
 function buildAnimal(type) {
   const d = ANIMALS[type];
   const root = new THREE.Group();
   const body = new THREE.Group();
   root.add(body);
   const [bw, bh, bl] = d.body;
-  body.add(box(bw, bh, bl, d.color, 0, d.by, 0));
-  const dark = new THREE.Color(d.color).multiplyScalar(0.7).getHex();
-  // голова
-  if (type === 'deer') {
-    body.add(box(0.2, 0.55, 0.22, d.color, 0, d.by + 0.4, bl / 2 - 0.05));
-    body.add(box(d.head * 0.8, d.head * 0.8, d.head * 1.3, d.color, 0, d.headY, d.headZ));
-    body.add(box(0.05, 0.4, 0.05, 0xd8c8a8, -0.1, d.headY + 0.35, d.headZ - 0.1));
-    body.add(box(0.05, 0.4, 0.05, 0xd8c8a8, 0.1, d.headY + 0.35, d.headZ - 0.1));
-    body.add(box(0.25, 0.05, 0.05, 0xd8c8a8, 0, d.headY + 0.5, d.headZ - 0.1));
-  } else {
-    body.add(box(d.head, d.head, d.head * 1.1, d.color, 0, d.headY, d.headZ));
-    body.add(box(d.head * 0.55, d.head * 0.45, d.head * 0.6, dark, 0, d.headY - 0.05, d.headZ + d.head * 0.7));
-    if (type === 'boar') {
-      body.add(box(0.04, 0.15, 0.04, 0xeeeeee, -0.15, d.headY - 0.05, d.headZ + 0.4));
-      body.add(box(0.04, 0.15, 0.04, 0xeeeeee, 0.15, d.headY - 0.05, d.headZ + 0.4));
-    }
-    if (type === 'wolf') {
-      body.add(box(0.08, 0.15, 0.06, dark, -0.1, d.headY + 0.2, d.headZ - 0.05));
-      body.add(box(0.08, 0.15, 0.06, dark, 0.1, d.headY + 0.2, d.headZ - 0.05));
-      const tail = box(0.1, 0.1, 0.5, d.color, 0, d.by + 0.1, -bl / 2 - 0.2);
-      tail.rotation.x = 0.5;
-      body.add(tail);
+  const c = d.color;
+  const dark = new THREE.Color(c).multiplyScalar(0.6).getHex();
+  const light = new THREE.Color(c).lerp(new THREE.Color(0xd8c8b0), 0.45).getHex();
+  // туловище
+  body.add(part(cap(bh / 2, bl - bh * 0.6), c, 0, d.by, 0, Math.PI / 2, 0, 0, bw / bh, 1, 1));
+  body.add(part(sph(bh * 0.52), c, 0, d.by + bh * 0.05, bl * 0.3, 0, 0, 0, bw / bh, 1.05, 1));
+  body.add(part(cap(bh * 0.35, bl * 0.5), light, 0, d.by - bh * 0.25, 0, Math.PI / 2, 0, 0, bw / bh * 0.9, 0.6, 1));
+  // шея и голова
+  const neckLen = type === 'deer' ? 0.55 : type === 'bear' ? 0.25 : 0.2;
+  const hy = d.headY, hz = d.headZ;
+  body.add(part(cap(d.head * 0.38, neckLen), c, 0, (d.by + hy) / 2 + 0.05, (bl * 0.4 + hz) / 2, -0.6, 0, 0));
+  const head = new THREE.Group();
+  head.position.set(0, hy, hz);
+  body.add(head);
+  head.add(part(sph(d.head * 0.52), c, 0, 0, 0, 0, 0, 0, 0.9, 0.85, 1.1));
+  const snoutL = type === 'boar' ? 0.32 : type === 'wolf' ? 0.3 : type === 'deer' ? 0.26 : 0.26;
+  head.add(part(cap(d.head * 0.24, snoutL), type === 'deer' ? dark : light, 0, -d.head * 0.12, d.head * 0.5, Math.PI / 2 - 0.15, 0, 0));
+  head.add(part(sph(d.head * 0.1), 0x151515, 0, -d.head * 0.05, d.head * 0.5 + snoutL * 0.75));
+  for (const sx of [-1, 1]) {
+    head.add(part(sph(d.head * 0.06), 0x0c0c0c, sx * d.head * 0.28, d.head * 0.12, d.head * 0.38));
+    if (type === 'wolf') head.add(part(cone(d.head * 0.14, d.head * 0.4), dark, sx * d.head * 0.25, d.head * 0.5, -d.head * 0.05, 0, 0, sx * -0.2));
+    else if (type === 'bear') head.add(part(sph(d.head * 0.14), dark, sx * d.head * 0.35, d.head * 0.4, -d.head * 0.1));
+    else if (type === 'deer') {
+      head.add(part(cone(d.head * 0.1, d.head * 0.45), c, sx * d.head * 0.35, d.head * 0.35, -d.head * 0.1, 0, 0, sx * -0.9));
+      // рога
+      const ant = new THREE.CylinderGeometry(0.018, 0.028, 0.45, 5);
+      head.add(part(ant, 0xcdbb98, sx * 0.1, d.head * 0.55, -0.05, -0.2, 0, sx * -0.35));
+      head.add(part(ant, 0xcdbb98, sx * 0.2, d.head * 0.8, 0.02, 0.5, 0, sx * -0.8, 0.7, 0.7, 0.7));
+      head.add(part(ant, 0xcdbb98, sx * 0.15, d.head * 0.95, -0.12, -0.6, 0, sx * -0.2, 0.6, 0.6, 0.6));
+    } else if (type === 'boar') {
+      head.add(part(cone(0.025, 0.14), 0xeeeadf, sx * 0.09, -d.head * 0.2, d.head * 0.72, -0.9, 0, 0));
+      head.add(part(cone(d.head * 0.12, d.head * 0.3), dark, sx * d.head * 0.3, d.head * 0.4, -d.head * 0.1, 0, 0, sx * -0.5));
     }
   }
-  // глаза
-  body.add(box(0.05, 0.05, 0.02, 0x111111, -d.head * 0.3, d.headY + 0.05, d.headZ + d.head * 0.56));
-  body.add(box(0.05, 0.05, 0.02, 0x111111, d.head * 0.3, d.headY + 0.05, d.headZ + d.head * 0.56));
+  // хвост
+  if (type === 'wolf') body.add(part(cap(0.07, 0.45), c, 0, d.by + 0.02, -bl / 2 - 0.15, -0.9, 0, 0));
+  if (type === 'deer') body.add(part(sph(0.08), 0xe8e0d0, 0, d.by + 0.1, -bl / 2 + 0.02));
+  if (type === 'boar') body.add(part(cap(0.025, 0.2), dark, 0, d.by + 0.1, -bl / 2 - 0.05, -0.5, 0, 0));
+  // ноги
   const legs = [];
   for (const [sx, sz] of [[-1, 1], [1, 1], [-1, -1], [1, -1]]) {
     const pivot = new THREE.Group();
-    pivot.position.set(sx * (bw / 2 - d.legW / 2), d.by - bh / 2 + 0.05, sz * (bl / 2 - d.legW));
-    const leg = box(d.legW, d.legH + 0.1, d.legW, dark, 0, -(d.legH + 0.1) / 2, 0);
-    pivot.add(leg);
+    pivot.position.set(sx * (bw / 2 - d.legW * 0.6), d.by - bh * 0.15, sz * (bl / 2 - d.legW * 1.2));
+    const L = d.by - bh * 0.15;
+    pivot.add(part(cap(d.legW * 0.7, L * 0.45), c, 0, -L * 0.3, 0, 0, 0, 0, 1, 1, 1.15));
+    pivot.add(part(cap(d.legW * 0.45, L * 0.45), dark, 0, -L * 0.72, 0));
     body.add(pivot);
     legs.push(pivot);
   }
   return { root, body, legs };
 }
 
+// Учёный: защитный костюм, противогаз, винтовка. Оригинальный дизайн.
 function buildHuman() {
   const root = new THREE.Group();
   const body = new THREE.Group();
   root.add(body);
-  const suit = 0x3a6f95, dark = 0x2a3a48;
+  const suit = 0x3f6e8c, suitDark = 0x2c4a5e, black = 0x1a1c1e;
   const legs = [];
   for (const sx of [-1, 1]) {
     const p = new THREE.Group();
-    p.position.set(sx * 0.13, 0.9, 0);
-    p.add(box(0.2, 0.9, 0.22, dark, 0, -0.45, 0));
+    p.position.set(sx * 0.13, 0.95, 0);
+    p.add(part(cap(0.1, 0.5), suit, 0, -0.35, 0));
+    p.add(part(cap(0.085, 0.25), suitDark, 0, -0.75, 0.02));
+    p.add(part(new THREE.BoxGeometry(0.14, 0.09, 0.26), black, 0, -0.91, 0.05));
     body.add(p);
     legs.push(p);
   }
-  body.add(box(0.52, 0.7, 0.3, suit, 0, 1.25, 0));
-  body.add(box(0.34, 0.34, 0.34, 0xcfc6b0, 0, 1.8, 0));
-  body.add(box(0.28, 0.16, 0.05, 0x223344, 0, 1.83, 0.17));
+  body.add(part(cap(0.21, 0.35), suit, 0, 1.28, 0, 0, 0, 0, 1.1, 1, 0.75));
+  body.add(part(new THREE.BoxGeometry(0.34, 0.3, 0.12), suitDark, 0, 1.3, -0.17));
+  body.add(part(new THREE.CylinderGeometry(0.2, 0.2, 0.06, 12), black, 0, 1.03, 0, 0, 0, 0, 1.15, 1, 0.8));
+  const head = new THREE.Group();
+  head.position.set(0, 1.74, 0);
+  body.add(head);
+  head.add(part(sph(0.16), suit, 0, 0.02, 0, 0, 0, 0, 1, 1.1, 1));
+  head.add(part(new THREE.SphereGeometry(0.12, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), 0x26313a, 0, 0.01, 0.1, Math.PI / 2, 0, 0, 1, 1, 0.5));
+  for (const sx of [-1, 1]) head.add(part(sph(0.045), 0x9ab8c8, sx * 0.06, 0.04, 0.15));
+  head.add(part(new THREE.CylinderGeometry(0.05, 0.06, 0.1, 10), black, 0, -0.08, 0.17, Math.PI / 2 - 0.4, 0, 0));
   const arms = new THREE.Group();
-  arms.position.set(0, 1.5, 0);
-  arms.add(box(0.14, 0.14, 0.55, suit, -0.3, -0.05, 0.22));
-  arms.add(box(0.14, 0.14, 0.55, suit, 0.3, -0.05, 0.22));
-  arms.add(box(0.08, 0.12, 0.7, 0x222222, 0.05, 0.0, 0.55));
+  arms.position.set(0, 1.47, 0);
+  arms.add(part(cap(0.075, 0.35), suit, -0.25, -0.1, 0.18, -1.2, 0, 0.3));
+  arms.add(part(cap(0.075, 0.35), suit, 0.25, -0.1, 0.18, -1.3, 0, -0.35));
+  arms.add(part(sph(0.06), black, 0.08, -0.08, 0.4));
+  arms.add(part(sph(0.06), black, -0.05, -0.02, 0.55));
+  // винтовка
+  arms.add(part(new THREE.BoxGeometry(0.07, 0.12, 0.55), black, 0.05, 0.0, 0.5));
+  arms.add(part(new THREE.CylinderGeometry(0.018, 0.018, 0.45, 8), black, 0.05, 0.03, 0.98, Math.PI / 2, 0, 0));
+  arms.add(part(new THREE.BoxGeometry(0.05, 0.14, 0.06), black, 0.05, -0.1, 0.42, 0.3, 0, 0));
+  arms.add(part(new THREE.BoxGeometry(0.06, 0.1, 0.25), 0x3b2f24, 0.05, -0.02, 0.18));
   body.add(arms);
-  const flash = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 4), new THREE.MeshBasicMaterial({ color: 0xffdd66 }));
-  flash.position.set(0.05, 1.5, 1.35);
+  const flash = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0xffd070, blending: THREE.AdditiveBlending, depthWrite: false }));
+  flash.scale.setScalar(0.4);
+  flash.position.set(0.05, 1.5, 1.25);
   flash.visible = false;
   body.add(flash);
   return { root, body, legs, flash };
 }
 
-const bagGeo = new THREE.BoxGeometry(0.6, 0.4, 0.4);
-const bagMat = new THREE.MeshLambertMaterial({ color: 0x5a4a2a });
+const bagGeo = new THREE.CapsuleGeometry(0.22, 0.3, 4, 10).rotateZ(Math.PI / 2);
+const bagMat = new THREE.MeshStandardMaterial({ color: 0x6a5a3a, roughness: 1 });
 const arrowGeo = new THREE.CylinderGeometry(0.015, 0.015, 0.8, 4).rotateX(Math.PI / 2);
-const arrowMat = new THREE.MeshLambertMaterial({ color: 0x8a6a3a });
+const arrowMat = new THREE.MeshStandardMaterial({ color: 0x8a6a3a, roughness: 0.8 });
 
 export class Entities {
   constructor(game) {
@@ -436,7 +478,7 @@ export class Entities {
   initParticles() {
     const N = 300;
     this.pN = N;
-    this.pIM = new THREE.InstancedMesh(new THREE.BoxGeometry(0.08, 0.08, 0.08), new THREE.MeshBasicMaterial(), N);
+    this.pIM = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.045, 0), new THREE.MeshStandardMaterial({ roughness: 0.9 }), N);
     this.pIM.frustumCulled = false;
     this.parts = [];
     const m = new THREE.Matrix4().makeScale(0, 0, 0);
