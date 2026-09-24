@@ -26,17 +26,17 @@ class Game {
     try { qs = JSON.parse(localStorage.getItem(SAVE_KEY + '_settings') || '{}').quality; } catch (e) { /* ignore */ }
     this.qualityKey = QUALITY[qs] ? qs : this.mobile ? 'low' : 'high';
     const Q = QUALITY[this.qualityKey];
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: !Q.post, powerPreference: 'high-performance' });
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, Q.pr));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = Q.shadows > 0;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.62;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer.toneMapping = THREE.NeutralToneMapping;
+    this.renderer.toneMappingExposure = 1.0;
     this.renderer.autoClear = false;
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.Fog(0xa9b8bf, 30, 330);
+    this.scene.fog = new THREE.Fog(0xb4cde4, 90, 650);
     this.camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.08, 1500);
     this.camera.rotation.order = 'YXZ';
     this.scene.add(this.camera);
@@ -47,9 +47,9 @@ class Game {
     this.sun.castShadow = Q.shadows > 0;
     if (Q.shadows) this.sun.shadow.mapSize.set(Q.shadows, Q.shadows);
     const sc = this.sun.shadow.camera;
-    sc.left = -55; sc.right = 55; sc.top = 55; sc.bottom = -55; sc.near = 1; sc.far = 300;
-    this.sun.shadow.bias = -0.0004;
-    this.sun.shadow.normalBias = 0.05;
+    sc.left = -45; sc.right = 45; sc.top = 45; sc.bottom = -45; sc.near = 1; sc.far = 300;
+    this.sun.shadow.bias = -0.0003;
+    this.sun.shadow.normalBias = 0.03;
     this.scene.add(this.sun, this.sun.target);
     this.fireLight = new THREE.PointLight(0xff8a30, 0, 18, 1.6);
     this.scene.add(this.fireLight);
@@ -1173,8 +1173,8 @@ class Game {
       this.scene.background = this.scene.fog.color;
     } else {
       this.scene.fog.color.copy(L.fog);
-      this.scene.fog.near = 30;
-      this.scene.fog.far = 330;
+      this.scene.fog.near = 90;
+      this.scene.fog.far = 650;
       this.scene.background = null;
     }
     const p = this.player.pos;
@@ -1182,14 +1182,14 @@ class Game {
     this.sun.position.set(p.x + lightDir.x * 120, p.y + Math.max(0.12, lightDir.y) * 120, p.z + lightDir.z * 120);
     this.sun.target.position.set(p.x, p.y, p.z);
     if (elev > -0.05) {
-      this.sun.color.setHex(0xfff0d8).lerp(new THREE.Color(0xff9a50), set * 0.8);
-      this.sun.intensity = 0.2 + 3.4 * day;
+      this.sun.color.setHex(0xfff4e2).lerp(new THREE.Color(0xff9a50), set * 0.8);
+      this.sun.intensity = 0.2 + 2.6 * day;
     } else {
       this.sun.color.setHex(0x8fa4d8);
       this.sun.intensity = 0.5;
     }
     const env = this.gfx.q.env;
-    this.hemi.intensity = env ? 0.15 + 0.35 * day : 0.45 + 1.0 * day;
+    this.hemi.intensity = env ? 0.2 + 0.4 * day : 0.5 + 1.1 * day;
     this.hemi.color.setHex(0xc8d8e8).lerp(new THREE.Color(0x4a5a90), 1 - day);
     this.vmHemi.intensity = 0.35 + 1.25 * day;
     this.vmDir.intensity = 0.2 + 1.0 * day;

@@ -4,10 +4,11 @@ import { Sky } from './Sky.js';
 import { buildTextures } from './textures.js';
 import { smoothstep, lerp, mulberry32 } from './util.js';
 
+// Чёткая картинка: полное разрешение, без постобработки, резкие тени и текстуры.
 export const QUALITY = {
-  low: { name: 'Низкая', shadows: 0, grass: 0, grassCell: 1.6, post: false, env: false, tex: 256, pr: 1.0, aniso: 1 },
-  medium: { name: 'Средняя', shadows: 1024, grass: 3000, grassCell: 1.35, post: true, env: true, tex: 512, pr: 1.25, aniso: 4 },
-  high: { name: 'Высокая', shadows: 2048, grass: 7000, grassCell: 1.0, post: true, env: true, tex: 512, pr: 1.75, aniso: 8 },
+  low: { name: 'Низкая', shadows: 0, grass: 0, grassCell: 1.6, post: false, env: false, tex: 512, pr: 1.0, aniso: 4 },
+  medium: { name: 'Средняя', shadows: 2048, grass: 3000, grassCell: 1.35, post: false, env: true, tex: 1024, pr: 1.5, aniso: 16 },
+  high: { name: 'Высокая', shadows: 4096, grass: 6000, grassCell: 1.0, post: false, env: true, tex: 1024, pr: 2, aniso: 16 },
 };
 export const QUALITY_ORDER = ['low', 'medium', 'high'];
 
@@ -124,7 +125,7 @@ ${TRIPLANAR}`)
   vec2 wuv = vWPos.xz;
   float det = texture2D(tDetail, wuv * 0.013).r;
   float det2 = texture2D(tDetail, wuv * 0.061 + 0.37).r;
-  vec3 cg = mix(texture2D(tGrass, wuv * 0.17).rgb, texture2D(tGrass, wuv * 0.043 + 0.5).rgb, 0.35);
+  vec3 cg = mix(texture2D(tGrass, wuv * 0.2).rgb, texture2D(tGrass, wuv * 0.047 + 0.5).rgb, 0.18);
   vec3 cd = texture2D(tDirt, wuv * 0.21).rgb;
   vec3 cs = texture2D(tSand, wuv * 0.19).rgb;
   vec3 cr = triplanar(tRock, vWPos, vWNrm, 0.11);
@@ -134,7 +135,7 @@ ${TRIPLANAR}`)
   w.x *= 0.7 + (1.0 - det2) * 0.6;
   w /= max(w.x + w.y + w.z + w.w, 0.001);
   vec3 tcol = cg * w.x + cd * w.y + cr * w.z + cs * w.w;
-  tcol *= 0.78 + det * 0.44;
+  tcol *= 0.85 + det * 0.3;
   diffuseColor.rgb *= tcol;
 `);
   };
@@ -177,15 +178,15 @@ function addWind(mat, key, amountExpr, strength) {
   mat.customProgramCacheKey = () => 'wind-' + key;
 }
 
-function cardMaterial(map, key, amountExpr, strength, lambert = false) {
-  const opts = { map, alphaTest: 0.45, side: THREE.DoubleSide, vertexColors: true };
+function cardMaterial(map, key, amountExpr, strength, lambert = false, alphaTest = 0.4) {
+  const opts = { map, alphaTest, side: THREE.DoubleSide, vertexColors: true };
   const m = lambert ? new THREE.MeshLambertMaterial(opts) : new THREE.MeshStandardMaterial({ ...opts, roughness: 0.85 });
   addWind(m, key, amountExpr, strength);
   return m;
 }
 
 export function cardDepth(map) {
-  return new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map, alphaTest: 0.45, side: THREE.DoubleSide });
+  return new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map, alphaTest: 0.35, side: THREE.DoubleSide });
 }
 
 export function buildMaterials(T) {
@@ -195,11 +196,11 @@ export function buildMaterials(T) {
     rock: rockMaterial(T),
     bark: std({ map: T.bark, normalMap: T.barkNormal, roughness: 0.95 }),
     birch: std({ map: T.birch, roughness: 0.8 }),
-    needles: cardMaterial(T.needles, 'needles', 'max(position.y - 2.0, 0.0) * 0.012 + length(position.xz) * 0.025', 1),
+    needles: cardMaterial(T.needles, 'needles', 'max(position.y - 2.0, 0.0) * 0.012 + length(position.xz) * 0.025', 1, false, 0.32),
     leaves: cardMaterial(T.leaves, 'leaves', 'max(position.y - 2.0, 0.0) * 0.015 + length(position.xz) * 0.03', 1),
     bush: cardMaterial(T.leaves, 'bush', 'position.y * 0.08', 1),
     hemp: cardMaterial(T.hemp, 'hemp', 'position.y * 0.08', 1),
-    grass: cardMaterial(T.grassBlade, 'grass', 'position.y', 0.22, true),
+    grass: cardMaterial(T.grassBlade, 'grass', 'position.y', 0.22, false, 0.45),
     tiers: [
       std({ map: T.twig, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 1 }),
       std({ map: T.planks, normalMap: T.planksNormal, roughness: 0.85 }),
@@ -262,10 +263,10 @@ export class Gfx {
     this.sky.frustumCulled = false;
     scene.add(this.sky);
     const u = this.sky.material.uniforms;
-    u.turbidity.value = 6;
-    u.rayleigh.value = 1.6;
-    u.mieCoefficient.value = 0.004;
-    u.mieDirectionalG.value = 0.82;
+    u.turbidity.value = 2.5;
+    u.rayleigh.value = 1.1;
+    u.mieCoefficient.value = 0.0025;
+    u.mieDirectionalG.value = 0.8;
 
     // звёзды
     const N = 1500, p = new Float32Array(N * 3);
@@ -314,9 +315,9 @@ export class Gfx {
       this.envGround.position.y = -2;
       this.envScene.add(this.envGround);
     }
-    this.fogDay = new THREE.Color(0xa9b8bf);
-    this.fogSet = new THREE.Color(0xc79a74);
-    this.fogNight = new THREE.Color(0x0c1119);
+    this.fogDay = new THREE.Color(0xb4cde4);
+    this.fogSet = new THREE.Color(0xd9a67a);
+    this.fogNight = new THREE.Color(0x0e1522);
     this.tmpC = new THREE.Color();
   }
 
@@ -329,8 +330,8 @@ export class Gfx {
     const set = (1 - smoothstep(0.0, 0.35, Math.abs(elev))) * smoothstep(-0.25, 0.05, elev);
     const u = this.sky.material.uniforms;
     u.sunPosition.value.copy(sd);
-    u.turbidity.value = lerp(5, 10, set);
-    u.rayleigh.value = lerp(1.4, 2.8, set);
+    u.turbidity.value = lerp(2.5, 6, set);
+    u.rayleigh.value = lerp(1.1, 2.4, set);
     this.sky.position.copy(camera.position);
     this.stars.position.copy(camera.position);
     this.stars.material.opacity = 1 - smoothstep(-0.2, 0.05, elev);
@@ -358,7 +359,7 @@ export class Gfx {
       this.envRT = rt;
       this.scene.environment = rt.texture;
     }
-    if (this.scene.environment) this.scene.environmentIntensity = 0.25 + 0.65 * day;
+    if (this.scene.environment) this.scene.environmentIntensity = 0.3 + 0.7 * day;
     return { elev, sd, day, set, fog };
   }
 
@@ -443,7 +444,7 @@ export class Grass {
       const g = new THREE.PlaneGeometry(1.1, 0.75);
       g.translate(0, 0.375, 0);
       g.rotateY((k / 3) * Math.PI);
-      parts.push({ geo: g, shade: (x, y) => 0.55 + (y / 0.75) * 0.5 });
+      parts.push({ geo: g, shade: (x, y) => 0.75 + (y / 0.75) * 0.4 });
     }
     const geo = mergeUV(parts, () => [0, 1, 0]);
     this.im = new THREE.InstancedMesh(geo, material, max);
@@ -482,7 +483,7 @@ export class Grass {
         if (y < 1.7) continue;
         const cs = w.colliders.query(x - 0.3, z - 0.3, x + 0.3, z + 0.3);
         if (cs.some((c) => c.minY < y + 0.8 && c.maxY > y - 0.5)) continue;
-        const sc = (0.7 + r3 * 0.7) * smoothstep(R, R - 8, d);
+        const sc = (0.6 + r3 * 0.5) * smoothstep(R, R - 8, d);
         e.set(0, r1 * 6.283, 0);
         q.setFromEuler(e);
         p.set(x, y - 0.05, z);

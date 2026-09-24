@@ -96,9 +96,9 @@ function grassTex() {
   const s = SIZE;
   const n1 = tileNoise(s, 4, 11, 5, 0.55), n2 = tileNoise(s, 48, 12, 2, 0.5), n3 = tileNoise(s, 2, 13, 3, 0.5);
   const cv = paint(s, (x, y, i) => {
-    let c = mixc([58, 70, 32], [98, 106, 50], n1[i]);
-    c = mixc(c, [124, 110, 64], sstep(0.52, 0.72, n3[i]) * 0.55);
-    const f = (n2[i] - 0.5) * 46;
+    let c = mixc([52, 82, 26], [96, 132, 46], n1[i]);
+    c = mixc(c, [126, 124, 58], sstep(0.58, 0.76, n3[i]) * 0.4);
+    const f = (n2[i] - 0.5) * 50;
     return [c[0] + f, c[1] + f, c[2] + f * 0.6];
   });
   const ctx = cv.getContext('2d');
@@ -120,8 +120,8 @@ function dirtTex() {
   const s = SIZE;
   const n1 = tileNoise(s, 6, 21, 5, 0.55), n2 = tileNoise(s, 64, 22, 2, 0.5);
   const cv = paint(s, (x, y, i) => {
-    const c = mixc([74, 58, 40], [118, 96, 68], n1[i]);
-    const f = (n2[i] - 0.5) * 36;
+    const c = mixc([86, 62, 38], [132, 100, 64], n1[i]);
+    const f = (n2[i] - 0.5) * 40;
     return [c[0] + f, c[1] + f, c[2] + f];
   });
   const ctx = cv.getContext('2d');
@@ -215,15 +215,15 @@ function needleTex() {
         const na = a + side * (0.9 + r() * 0.35);
         const g = greens[Math.floor(r() * greens.length)];
         ctx.strokeStyle = `rgb(${g[0]},${g[1]},${g[2]})`;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 2.6;
         ctx.beginPath();
         ctx.moveTo(px, py);
         ctx.lineTo(px + Math.cos(na) * nl, py + Math.sin(na) * nl);
         ctx.stroke();
       }
     }
-    if (depth < 1) {
-      for (let t = 30; t < len - 20; t += 24 + r() * 10) {
+    if (depth < 2) {
+      for (let t = depth ? 12 : 26; t < len - 14; t += (depth ? 16 : 20) + r() * 8) {
         const px = x0 + Math.cos(a) * t, py = y0 + Math.sin(a) * t;
         for (const side of [-1, 1]) {
           const sa = a + side * (0.55 + r() * 0.3);
