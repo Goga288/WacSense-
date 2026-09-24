@@ -134,5 +134,99 @@ export function sfx(name, vol = 1) {
     case 'step':
       noise(0.06, 300, 'lowpass', 0.15 * vol);
       break;
+    case 'crack':
+      noise(0.5, 1800, 'highpass', 0.6 * vol);
+      tone(180, 0.6, 'sawtooth', 0.15 * vol, 60);
+      break;
+    case 'thud':
+      noise(0.8, 250, 'lowpass', 1.2 * vol);
+      tone(70, 0.6, 'sine', 0.8 * vol, 35);
+      break;
+  }
+}
+
+// ---------- Фоновые звуки: ветер, прибой, птицы, сверчки ----------
+let amb = null;
+
+function loopNoise(type, freq, q) {
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuf;
+  src.loop = true;
+  const f = ctx.createBiquadFilter();
+  f.type = type;
+  f.frequency.value = freq;
+  f.Q.value = q;
+  const g = ctx.createGain();
+  g.gain.value = 0;
+  src.connect(f).connect(g).connect(master);
+  src.start();
+  return { f, g };
+}
+
+function chirp() {
+  const t0 = ctx.currentTime;
+  const n = 2 + Math.floor(Math.random() * 4);
+  const base = 2200 + Math.random() * 1500;
+  const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+  const out = ctx.createGain();
+  out.gain.value = 0.025 + Math.random() * 0.02;
+  if (pan) { pan.pan.value = Math.random() * 2 - 1; out.connect(pan).connect(master); } else out.connect(master);
+  for (let i = 0; i < n; i++) {
+    const t = t0 + i * (0.09 + Math.random() * 0.05);
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(base, t);
+    o.frequency.exponentialRampToValueAtTime(base * (1.3 + Math.random() * 0.4), t + 0.06);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(1, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
+    o.connect(g).connect(out);
+    o.start(t);
+    o.stop(t + 0.08);
+  }
+}
+
+function cricket() {
+  const t0 = ctx.currentTime;
+  const out = ctx.createGain();
+  out.gain.value = 0.012;
+  out.connect(master);
+  for (let i = 0; i < 3; i++) {
+    const t = t0 + i * 0.06;
+    const o = ctx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.value = 4300 + Math.random() * 200;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(1, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.04);
+    o.connect(g).connect(out);
+    o.start(t);
+    o.stop(t + 0.05);
+  }
+}
+
+// p: { day 0..1, shore 0..1, height }
+export function updateAmbient(dt, p) {
+  if (!ctx || muted || ctx.state !== 'running') return;
+  if (!amb) amb = { wind: loopNoise('bandpass', 450, 0.5), sea: loopNoise('lowpass', 420, 0.6), t: 0, bird: 2, cr: 0 };
+  amb.t += dt;
+  const now = ctx.currentTime;
+  const hk = Math.min(1, Math.max(0, p.height / 35));
+  const gust = 0.5 + 0.3 * Math.sin(amb.t * 0.27) + 0.2 * Math.sin(amb.t * 0.71);
+  amb.wind.g.gain.setTargetAtTime((0.04 + hk * 0.07) * gust, now, 0.6);
+  amb.wind.f.frequency.setTargetAtTime(350 + gust * 250, now, 0.6);
+  const swell = 0.6 + 0.4 * Math.sin(amb.t * 0.55);
+  amb.sea.g.gain.setTargetAtTime(p.shore * 0.22 * swell, now, 0.4);
+  amb.bird -= dt;
+  if (amb.bird <= 0) {
+    amb.bird = 1.2 + Math.random() * 4.5;
+    if (p.day > 0.5 && p.shore < 0.6) chirp();
+  }
+  amb.cr -= dt;
+  if (amb.cr <= 0) {
+    amb.cr = 0.35 + Math.random() * 0.9;
+    if (p.day < 0.25 && p.shore < 0.8) cricket();
   }
 }

@@ -304,6 +304,13 @@ export class Gfx {
     }
     scene.add(this.clouds);
 
+    // блик солнца
+    this.glare = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: this.T.glare, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, transparent: true,
+    }));
+    this.glare.scale.setScalar(260);
+    scene.add(this.glare);
+
     // сцена для карты окружения
     if (this.q.env) {
       this.pmrem = new THREE.PMREMGenerator(this.game.renderer);
@@ -338,6 +345,10 @@ export class Gfx {
     this.stars.visible = this.stars.material.opacity > 0.01;
     this.moon.position.copy(camera.position).addScaledVector(sd, -700);
     this.moon.visible = elev < 0.15;
+    this.glare.position.copy(camera.position).addScaledVector(sd, 600);
+    this.glare.visible = elev > -0.08;
+    this.glare.material.opacity = smoothstep(-0.08, 0.12, elev) * 0.9;
+    this.glare.material.color.setRGB(1, 1, 1).lerp(this.fogSet, set * 0.6);
     for (const c of this.clouds.children) {
       c.position.x += dt * 3;
       if (c.position.x > 900) c.position.x = -900;

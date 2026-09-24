@@ -476,54 +476,89 @@ export class Entities {
 
   // ---------- Частицы ----------
   initParticles() {
-    const N = 300;
-    this.pN = N;
-    this.pIM = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.045, 0), new THREE.MeshStandardMaterial({ roughness: 0.9 }), N);
-    this.pIM.frustumCulled = false;
-    this.parts = [];
-    const m = new THREE.Matrix4().makeScale(0, 0, 0);
-    const c = new THREE.Color(1, 1, 1);
-    for (let i = 0; i < N; i++) {
-      this.pIM.setMatrixAt(i, m);
-      this.pIM.setColorAt(i, c);
-      this.parts.push({ life: 0, p: new THREE.Vector3(), v: new THREE.Vector3() });
-    }
-    this.pNext = 0;
-    this.scene.add(this.pIM);
+    const make = (mat, N) => {
+      const im = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.045, 0), mat, N);
+      im.frustumCulled = false;
+      const m = new THREE.Matrix4().makeScale(0, 0, 0);
+      const c = new THREE.Color(1, 1, 1);
+      const parts = [];
+      for (let i = 0; i < N; i++) {
+        im.setMatrixAt(i, m);
+        im.setColorAt(i, c);
+        parts.push({ life: 0, max: 1, p: new THREE.Vector3(), v: new THREE.Vector3(), g: 12, size: 1, spin: 0 });
+      }
+      this.scene.add(im);
+      return { im, parts, next: 0, N };
+    };
+    // обычные частицы (щепки, пыль, кровь, листья) и светящиеся искры
+    this.psolid = make(new THREE.MeshStandardMaterial({ roughness: 0.9 }), 360);
+    this.pglow = make(new THREE.MeshBasicMaterial({ toneMapped: false }), 160);
   }
 
-  burst(x, y, z, color, n = 8, spd = 3) {
+  // opts: glow — светящиеся искры, grav — гравитация, size — размер, life — время жизни
+  burst(x, y, z, color, n = 8, spd = 3, opts = {}) {
+    const sys = opts.glow ? this.pglow : this.psolid;
     const col = new THREE.Color(color);
+    if (opts.glow) col.multiplyScalar(3);
     for (let i = 0; i < n; i++) {
-      const idx = this.pNext = (this.pNext + 1) % this.pN;
-      const p = this.parts[idx];
-      p.life = rand(0.4, 0.8);
+      const idx = sys.next = (sys.next + 1) % sys.N;
+      const p = sys.parts[idx];
+      p.max = p.life = (opts.life || 0.6) * rand(0.6, 1.2);
       p.p.set(x, y, z);
-      p.v.set(rand(-1, 1) * spd, rand(0.5, 1.5) * spd, rand(-1, 1) * spd);
-      this.pIM.setColorAt(idx, col);
+      p.v.set(rand(-1, 1) * spd, rand(0.3, 1.4) * spd * (opts.up ?? 1), rand(-1, 1) * spd);
+      p.g = opts.grav ?? 12;
+      p.size = (opts.size || 1) * rand(0.6, 1.4);
+      sys.im.setColorAt(idx, col);
     }
-    this.pIM.instanceColor.needsUpdate = true;
+    sys.im.instanceColor.needsUpdate = true;
   }
 
   blood(x, y, z) {
-    this.burst(x, y, z, 0x8a1010, 10, 2.5);
+    this.burst(x, y, z, 0x7a0a0a, 12, 2.5, { size: 1.1 });
+  }
+
+  // Набор эффектов попадания по материалу.
+  impact(x, y, z, kind) {
+    switch (kind) {
+      case 'wood':
+        this.burst(x, y, z, 0x8a6238, 8, 3, { size: 1.3 });
+        break;
+      case 'leaves':
+        this.burst(x, y, z, 0x4f7a2e, 6, 1.2, { grav: 1.5, life: 2.2, size: 1.4, up: 0.3 });
+        break;
+      case 'stone':
+        this.burst(x, y, z, 0x8d8a84, 8, 3, { size: 1.1 });
+        this.burst(x, y, z, 0xffb050, 5, 5, { glow: true, size: 0.5, life: 0.35 });
+        break;
+      case 'metal':
+        this.burst(x, y, z, 0xffc070, 9, 5.5, { glow: true, size: 0.45, life: 0.4 });
+        break;
+      case 'dirt':
+        this.burst(x, y, z, 0x5e4a30, 7, 2.2, { size: 1.2 });
+        break;
+      default:
+        this.burst(x, y, z, 0x9a9a9a, 5, 2);
+    }
   }
 
   updateParticles(dt) {
     const m = new THREE.Matrix4();
-    let any = false;
-    for (let i = 0; i < this.pN; i++) {
-      const p = this.parts[i];
-      if (p.life <= 0) continue;
-      any = true;
-      p.life -= dt;
-      p.v.y -= 12 * dt;
-      p.p.addScaledVector(p.v, dt);
-      const s = p.life > 0 ? 1 : 0;
-      m.makeScale(s, s, s).setPosition(p.p);
-      this.pIM.setMatrixAt(i, m);
+    for (const sys of [this.psolid, this.pglow]) {
+      let any = false;
+      for (let i = 0; i < sys.N; i++) {
+        const p = sys.parts[i];
+        if (p.life <= 0) continue;
+        any = true;
+        p.life -= dt;
+        p.v.y -= p.g * dt;
+        if (p.g < 3) { p.v.x *= 1 - dt; p.v.z *= 1 - dt; p.p.x += Math.sin(p.life * 5 + i) * dt * 0.4; }
+        p.p.addScaledVector(p.v, dt);
+        const s = p.life > 0 ? p.size * Math.min(1, (p.life / p.max) * 2.5) : 0;
+        m.makeScale(s, s, s).setPosition(p.p);
+        sys.im.setMatrixAt(i, m);
+      }
+      if (any) sys.im.instanceMatrix.needsUpdate = true;
     }
-    if (any) this.pIM.instanceMatrix.needsUpdate = true;
   }
 
   updateFx(dt) {

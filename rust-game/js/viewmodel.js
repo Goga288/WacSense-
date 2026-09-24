@@ -136,6 +136,14 @@ export function buildViewModel(item, M) {
       pivot.add(mesh(cyl(0.035, 0.035, 0.07, 8), DARK, 0, 0.06, -0.06, Math.PI / 2, 0, 0));
       pivot.add(mesh(cyl(0.014, 0.016, 0.22, 10), DARK, 0, 0.085, -0.2, Math.PI / 2, 0, 0));
       pivot.add(mesh(box(0.008, 0.015, 0.01), DARK, 0, 0.1, -0.3));
+      {
+        const fl = new THREE.Sprite(M.flame.clone());
+        fl.scale.setScalar(0.22);
+        fl.position.set(0, 0.085, -0.36);
+        fl.visible = false;
+        pivot.add(fl);
+        root.userData.flash = fl;
+      }
       break;
     default:
       if (item) {

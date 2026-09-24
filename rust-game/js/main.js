@@ -5,7 +5,7 @@ import { Building, PIECE_ORDER, PIECES, TIERS, DEPLOY } from './building.js';
 import { Entities } from './entities.js';
 import { UI } from './ui.js';
 import { ITEMS, Inventory, FIST, costText, rollLoot } from './items.js';
-import { initAudio, sfx as playSfx, setMuted } from './audio.js';
+import { initAudio, sfx as playSfx, setMuted, updateAmbient } from './audio.js';
 import { Y } from './ysdk.js';
 import { clamp, lerp, smoothstep, rand, randi } from './util.js';
 import { buildViewModel } from './viewmodel.js';
@@ -90,6 +90,10 @@ class Game {
     this.eatT = 1;
     this.pendingHit = null;
     this.bob = 0;
+    this.shake = 0;
+    this.lookDX = 0;
+    this.lookDY = 0;
+    this.sway = { x: 0, y: 0 };
     this.stepT = 0;
     this.sens = 1;
     this.soundOn = true;
@@ -357,6 +361,8 @@ class Game {
 
   look(dx, dy, s) {
     const p = this.player;
+    this.lookDX += dx * s * this.sens;
+    this.lookDY += dy * s * this.sens;
     p.yaw -= dx * s * this.sens;
     p.pitch = clamp(p.pitch - dy * s * this.sens, -1.55, 1.55);
   }
@@ -616,6 +622,7 @@ class Game {
     const p = this.player;
     if (!p.alive || this.state === 'menu') return;
     p.hp -= dmg;
+    if (dmg > 1) this.shake = Math.max(this.shake, Math.min(1, dmg / 12));
     this.hurtFx = Math.min(1, this.hurtFx + dmg / 25);
     this.ui.hurt();
     this.sfx('hurt');
@@ -680,18 +687,21 @@ class Game {
         break;
       }
       case 'piece':
-      case 'deploy':
-        this.ents.burst(pt.x, pt.y, pt.z, 0x8b6a45, 5, 2);
-        this.sfx(hit.obj.tier >= 2 ? 'stone' : 'wood', null, 0.6);
+      case 'deploy': {
+        const tier = hit.obj.tier || 0;
+        this.ents.impact(pt.x, pt.y, pt.z, tier >= 3 ? 'metal' : tier === 2 ? 'stone' : 'wood');
+        this.sfx(tier >= 3 ? 'metal' : tier === 2 ? 'stone' : 'wood', null, 0.6);
         break;
+      }
       case 'terrain':
-        this.ents.burst(pt.x, pt.y, pt.z, 0x6b5a3a, 5, 2);
+        this.ents.impact(pt.x, pt.y, pt.z, 'dirt');
         this.sfx('step', null, 2);
         break;
       default:
-        this.ents.burst(pt.x, pt.y, pt.z, 0x999999, 5, 2);
+        this.ents.impact(pt.x, pt.y, pt.z, 'stone');
         this.sfx('stone', null, 0.6);
     }
+    this.shake = Math.max(this.shake, 0.15);
   }
 
   gather(n, tool, pt) {
@@ -699,7 +709,7 @@ class Game {
     if (n.kind === 'barrel') {
       n.hp -= tool.dmg;
       this.sfx('metal');
-      this.ents.burst(pt.x, pt.y, pt.z, 0x3a5a8a, 6, 2);
+      this.ents.impact(pt.x, pt.y, pt.z, 'metal');
       if (n.hp <= 0) {
         for (const it of rollLoot('barrel')) this.giveItem(it.id, it.n);
         this.world.killNode(n, 240);
@@ -709,7 +719,7 @@ class Game {
     if (def.pickup) { this.pickupNode(n); return; }
     if (!def.give) {
       this.sfx('stone');
-      this.ents.burst(pt.x, pt.y, pt.z, 0x8d8a84, 4, 2);
+      this.ents.impact(pt.x, pt.y, pt.z, 'stone');
       return;
     }
     const mult = tool[def.gather] || 0.2;
@@ -719,12 +729,26 @@ class Game {
     this.giveItem(def.give, got);
     if (def.bonus) this.giveItem(def.bonus, Math.ceil(got * 0.5));
     this.sfx(def.snd);
-    this.ents.burst(pt.x, pt.y, pt.z, n.kind === 'tree' ? 0x7a5230 : n.kind === 'sulfur' ? 0xd8c23a : 0x8d8a84, 6, 2.5);
+    if (n.kind === 'tree') {
+      this.ents.impact(pt.x, pt.y, pt.z, 'wood');
+      if (n.sub !== 'birch' || Math.random() < 0.8) this.ents.impact(n.x, n.y + 4 + Math.random() * 3, n.z, 'leaves');
+    } else {
+      this.ents.impact(pt.x, pt.y, pt.z, 'stone');
+      if (n.kind === 'sulfur') this.ents.burst(pt.x, pt.y, pt.z, 0xd8c23a, 5, 2.5);
+      if (n.kind === 'metal') this.ents.burst(pt.x, pt.y, pt.z, 0x9a5a38, 5, 2.5);
+    }
     if (n.amount <= 0) {
       if (n.kind === 'tree') {
         n.fall = 0;
         this.world.animNodes.add(n);
         this.giveItem('wood', 20);
+        this.sfx('crack', n);
+        const pos = { x: n.x, y: n.y, z: n.z };
+        this.timers.push({ t: 1.2, fn: () => {
+          this.sfx('thud', pos);
+          if (Math.hypot(pos.x - this.player.pos.x, pos.z - this.player.pos.z) < 20) this.shake = Math.max(this.shake, 0.5);
+          for (let k = 0; k < 3; k++) this.ents.impact(pos.x + (Math.random() - 0.5) * 3, pos.y + 1 + Math.random() * 4, pos.z + (Math.random() - 0.5) * 3, 'leaves');
+        } });
       }
       this.world.killNode(n, n.kind === 'tree' ? 300 : 400);
     } else if (n.kind === 'tree') {
@@ -754,6 +778,8 @@ class Game {
     this.cool = g.rate;
     this.recoilT = 0;
     this.sfx('shot');
+    this.shake = Math.max(this.shake, 0.6);
+    this.muzzleT = 0.06;
     const [o, d] = this.eyeRay();
     d.x += rand(-g.spread, g.spread);
     d.y += rand(-g.spread, g.spread);
@@ -774,7 +800,8 @@ class Game {
       } else if (hit.kind === 'node' && hit.obj.kind === 'barrel') {
         this.gather(hit.obj, { dmg: g.dmg }, end);
       } else {
-        this.ents.burst(end.x, end.y, end.z, 0xffe0a0, 4, 2);
+        const k = hit.kind === 'terrain' ? 'dirt' : hit.kind === 'node' && hit.obj.kind === 'tree' ? 'wood' : 'stone';
+        this.ents.impact(end.x, end.y, end.z, k);
       }
     }
     this.invDirty = true;
@@ -786,6 +813,7 @@ class Game {
     this.cool = r.rate;
     this.recoilT = 0;
     this.sfx('bow');
+    this.shake = Math.max(this.shake, 0.15);
     const [o, d] = this.eyeRay();
     const dir = d.clone();
     dir.x += rand(-r.spread, r.spread);
@@ -1086,6 +1114,12 @@ class Game {
     const p = this.player;
     this.camera.position.set(p.pos.x, p.pos.y + EYE, p.pos.z);
     this.camera.rotation.set(p.pitch, p.yaw, 0);
+    if (this.shake > 0.01) {
+      const k = this.shake * this.shake * 0.035;
+      this.camera.rotation.x += (Math.random() - 0.5) * k;
+      this.camera.rotation.y += (Math.random() - 0.5) * k;
+      this.camera.rotation.z += (Math.random() - 0.5) * k * 0.5;
+    }
     const fov = this.aim ? 50 : 72;
     if (Math.abs(this.camera.fov - fov) > 0.1) {
       this.camera.fov = lerp(this.camera.fov, fov, 0.25);
@@ -1155,7 +1189,22 @@ class Game {
       vm.position.y += k * 0.1;
       rx += k * 0.6;
     }
+    // рука запаздывает за движением мыши
+    const sk = 1 - Math.exp(-10 * dt);
+    this.sway.x = lerp(this.sway.x, clamp(-this.lookDX * 1.2, -0.07, 0.07), sk);
+    this.sway.y = lerp(this.sway.y, clamp(this.lookDY * 1.2, -0.05, 0.05), sk);
+    this.lookDX = 0;
+    this.lookDY = 0;
+    vm.position.x += this.sway.x;
+    vm.position.y += this.sway.y;
+    rz += this.sway.x * 2.5;
+    ry += this.sway.x * 1.5;
     pv.rotation.set(rx, ry, rz);
+    if (vm.userData.flash) {
+      this.muzzleT = (this.muzzleT || 0) - dt;
+      vm.userData.flash.visible = this.muzzleT > 0;
+      vm.userData.flash.material.rotation = Math.random() * 6;
+    }
   }
 
   // ---------- Небо и свет ----------
@@ -1233,6 +1282,19 @@ class Game {
     this.dayTime = (this.dayTime + dt / DAY_LENGTH) % 1;
     wind.value += dt;
     this.hurtFx = Math.max(0, this.hurtFx - dt * 2.5);
+    this.shake = Math.max(0, this.shake - dt * 3);
+    this.ambT = (this.ambT || 0) - dt;
+    if (this.ambT <= 0) {
+      this.ambT = 0.5;
+      let wet = 0;
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * Math.PI * 2;
+        if (this.world.getHeight(p.pos.x + Math.cos(a) * 14, p.pos.z + Math.sin(a) * 14) < 0) wet++;
+      }
+      const day = smoothstep(-0.1, 0.2, Math.sin((this.dayTime - 0.25) * Math.PI * 2));
+      this.ambParams = { day, shore: p.inWater ? 1 : wet / 8, height: p.pos.y };
+    }
+    if (this.ambParams && this.soundOn) updateAmbient(dt, this.ambParams);
 
     if (p.alive) {
       this.movePlayer(dt);

@@ -528,6 +528,33 @@ function cloudTex() {
   return toTex(cv, true, false);
 }
 
+function glareTex() {
+  const s = 256;
+  const cv = canvas(s);
+  const ctx = cv.getContext('2d');
+  const g = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+  g.addColorStop(0, 'rgba(255,252,240,1)');
+  g.addColorStop(0.08, 'rgba(255,246,220,0.9)');
+  g.addColorStop(0.25, 'rgba(255,220,170,0.25)');
+  g.addColorStop(1, 'rgba(255,200,150,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, s, s);
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 6; i++) {
+    ctx.save();
+    ctx.translate(s / 2, s / 2);
+    ctx.rotate((i / 6) * Math.PI + 0.3);
+    const lg = ctx.createLinearGradient(-s / 2, 0, s / 2, 0);
+    lg.addColorStop(0, 'rgba(255,240,210,0)');
+    lg.addColorStop(0.5, 'rgba(255,240,210,0.35)');
+    lg.addColorStop(1, 'rgba(255,240,210,0)');
+    ctx.fillStyle = lg;
+    ctx.fillRect(-s / 2, -1.5, s, 3);
+    ctx.restore();
+  }
+  return toTex(cv, true, false);
+}
+
 export function buildTextures(size, aniso) {
   setTexQuality(size, aniso);
   const T = {};
@@ -559,5 +586,6 @@ export function buildTextures(size, aniso) {
   T.water = waterNormal();
   T.flame = flameTex();
   T.cloud = cloudTex();
+  T.glare = glareTex();
   return T;
 }

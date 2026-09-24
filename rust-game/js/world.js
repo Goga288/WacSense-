@@ -4,7 +4,7 @@ import {
   makePerlin, fbm, smoothstep, lerp, clamp, mulberry32, SpatialGrid, rayBox, rayCylY, raySphere,
 } from './util.js';
 import { Inventory, rollLoot } from './items.js';
-import { worldBox, staticMaterial, Grass } from './gfx.js';
+import { worldBox, staticMaterial, Grass, wind } from './gfx.js';
 import { pineGeos, birchGeos, rockGeo, hempGeo, bushGeo, mushroomGeo, barrelGeo } from './models.js';
 
 export const WORLD = 440;
@@ -305,6 +305,15 @@ export class World {
       vertexColors: true, transparent: true, roughness: 0.06, metalness: 0.1,
       normalMap: this.waterNormal, normalScale: new THREE.Vector2(0.35, 0.35), depthWrite: false,
     });
+    this.waterMat.onBeforeCompile = (sh) => {
+      sh.uniforms.uTime = wind;
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nuniform float uTime;')
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+  transformed.y += sin(position.x * 0.13 + uTime * 1.1) * 0.09 + sin(position.z * 0.17 + uTime * 0.8) * 0.07
+    + sin((position.x + position.z) * 0.31 + uTime * 1.7) * 0.03;`);
+    };
+    this.waterMat.customProgramCacheKey = () => 'water-waves';
     const group = new THREE.Group();
     group.add(new THREE.Mesh(inner, this.waterMat));
     for (const g of outerParts) group.add(new THREE.Mesh(g, this.waterMat));
