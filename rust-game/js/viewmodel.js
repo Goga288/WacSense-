@@ -74,6 +74,47 @@ function hand(M, grip = true) {
   return g;
 }
 
+// Вспышка выстрела у дула.
+function addFlash(M, pivot, root, z, y, size) {
+  const fl = new THREE.Sprite(M.flame.clone());
+  fl.scale.setScalar(size);
+  fl.position.set(0, y, z);
+  fl.visible = false;
+  pivot.add(fl);
+  root.userData.flash = fl;
+}
+
+// Внешние модели (CC0 .glb), если игрок положил их в папку models/.
+export const external = {};
+
+function attachExternal(item, pivot) {
+  const ext = external[item.id];
+  if (!ext) return false;
+  const o = ext.scene.clone(true);
+  o.traverse((c) => { if (c.isMesh) { c.castShadow = false; } });
+  if (ext.transform) {
+    const t = ext.transform;
+    if (t.rot) o.rotation.set(...t.rot);
+    if (t.pos) o.position.set(...t.pos);
+    if (t.scale) o.scale.setScalar(t.scale);
+  } else {
+    // автоподгонка: длинная ось — вперёд (-Z), длина — как у встроенной модели
+    const b = new THREE.Box3().setFromObject(o);
+    const sz = b.getSize(new THREE.Vector3());
+    if (sz.x > sz.z && sz.x > sz.y) o.rotation.y = Math.PI / 2;
+    const b2 = new THREE.Box3().setFromObject(o);
+    const s2 = b2.getSize(new THREE.Vector3());
+    const len = Math.max(s2.x, s2.y, s2.z) || 1;
+    const target = ext.length || 0.9;
+    o.scale.multiplyScalar(target / len);
+    const b3 = new THREE.Box3().setFromObject(o);
+    const c = b3.getCenter(new THREE.Vector3());
+    o.position.sub(c).add(new THREE.Vector3(0, 0.05, -target * 0.35));
+  }
+  pivot.add(o);
+  return true;
+}
+
 export function buildViewModel(item, M) {
   const m = mats(M);
   const root = new THREE.Group();
@@ -82,6 +123,10 @@ export function buildViewModel(item, M) {
   const model = item ? item.model : null;
   const head = item && item.metal ? m.blade : m.rock;
   pivot.add(hand(M, !!model || !item));
+  if (item && attachExternal(item, pivot)) {
+    root.userData.pivot = pivot;
+    return root;
+  }
   switch (model) {
     case 'rock': {
       const r = mesh(rockGeo(606), m.rock, 0, 0.05, -0.06);
@@ -159,23 +204,74 @@ export function buildViewModel(item, M) {
       root.userData.flames = flames;
       break;
     }
-    case 'rifle': {
-      const metal = DARK, wood = WOOD;
-      pivot.add(mesh(box(0.05, 0.075, 0.34), metal, 0, 0.06, -0.12));
-      pivot.add(mesh(box(0.056, 0.065, 0.22), wood, 0, 0.055, -0.38));
-      pivot.add(mesh(cyl(0.012, 0.012, 0.3, 10), metal, 0, 0.07, -0.62, Math.PI / 2, 0, 0));
-      pivot.add(mesh(cyl(0.016, 0.016, 0.05, 10), metal, 0, 0.07, -0.78, Math.PI / 2, 0, 0));
-      pivot.add(mesh(box(0.01, 0.035, 0.012), metal, 0, 0.1, -0.72));
-      pivot.add(mesh(box(0.035, 0.15, 0.06), metal, 0, -0.04, -0.2, 0.35, 0, 0));
-      pivot.add(mesh(box(0.034, 0.1, 0.045), wood, 0, -0.02, -0.02, -0.35, 0, 0));
-      pivot.add(mesh(box(0.042, 0.085, 0.24), wood, 0, 0.035, 0.14, -0.08, 0, 0));
-      pivot.add(mesh(box(0.012, 0.02, 0.1), metal, 0, 0.11, -0.12));
-      const fl = new THREE.Sprite(M.flame.clone());
-      fl.scale.setScalar(0.28);
-      fl.position.set(0, 0.07, -0.85);
-      fl.visible = false;
-      pivot.add(fl);
-      root.userData.flash = fl;
+    case 'ak': {
+      const M2 = DARK, W = WOOD;
+      pivot.add(mesh(box(0.052, 0.07, 0.36), M2, 0, 0.06, -0.12));           // ствольная коробка
+      pivot.add(mesh(box(0.046, 0.02, 0.3), M2, 0, 0.1, -0.12));             // крышка
+      pivot.add(mesh(box(0.058, 0.06, 0.2), W, 0, 0.05, -0.38));             // цевьё
+      pivot.add(mesh(box(0.04, 0.03, 0.18), W, 0, 0.1, -0.38));              // накладка
+      pivot.add(mesh(cyl(0.013, 0.013, 0.32, 10), M2, 0, 0.065, -0.62, Math.PI / 2, 0, 0));
+      pivot.add(mesh(cyl(0.011, 0.011, 0.28, 8), M2, 0, 0.1, -0.52, Math.PI / 2, 0, 0)); // газовая трубка
+      pivot.add(mesh(cyl(0.019, 0.017, 0.07, 10), M2, 0, 0.065, -0.8, Math.PI / 2, 0, 0)); // дульный тормоз
+      pivot.add(mesh(box(0.012, 0.045, 0.014), M2, 0, 0.1, -0.74));          // мушка
+      pivot.add(mesh(box(0.03, 0.02, 0.04), M2, 0, 0.11, -0.3));             // прицел
+      for (let i = 0; i < 4; i++) {                                          // изогнутый магазин
+        pivot.add(mesh(box(0.034, 0.05, 0.064), M2, 0, -0.005 - i * 0.043, -0.22 + i * 0.018, 0.25 + i * 0.12, 0, 0));
+      }
+      pivot.add(mesh(box(0.034, 0.1, 0.045), W, 0, -0.02, -0.02, -0.35, 0, 0)); // рукоять
+      pivot.add(mesh(box(0.042, 0.075, 0.26), W, 0, 0.03, 0.16, -0.12, 0, 0));  // приклад
+      pivot.add(mesh(box(0.03, 0.035, 0.03), M2, 0, 0.0, -0.08));           // спуск
+      addFlash(M, pivot, root, -0.86, 0.065, 0.3);
+      break;
+    }
+    case 'bolt': {
+      const M2 = DARK, W = WOOD;
+      pivot.add(mesh(box(0.045, 0.06, 0.3), M2, 0, 0.06, -0.14));
+      pivot.add(mesh(cyl(0.012, 0.014, 0.62, 10), M2, 0, 0.065, -0.6, Math.PI / 2, 0, 0));
+      pivot.add(mesh(box(0.056, 0.07, 0.62), W, 0, 0.03, -0.2));             // ложа
+      pivot.add(mesh(box(0.046, 0.09, 0.26), W, 0, 0.0, 0.18, -0.18, 0, 0));  // приклад
+      pivot.add(mesh(cyl(0.022, 0.022, 0.26, 12), M2, 0, 0.135, -0.14, Math.PI / 2, 0, 0)); // прицел
+      pivot.add(mesh(cyl(0.028, 0.022, 0.06, 12), M2, 0, 0.135, -0.3, Math.PI / 2, 0, 0));
+      pivot.add(mesh(cyl(0.026, 0.022, 0.05, 12), M2, 0, 0.135, 0.01, Math.PI / 2, 0, 0));
+      pivot.add(mesh(box(0.014, 0.04, 0.02), M2, 0, 0.1, -0.2));
+      pivot.add(mesh(box(0.014, 0.04, 0.02), M2, 0, 0.1, -0.08));
+      const handle = mesh(cyl(0.006, 0.006, 0.07, 6), M2, 0.04, 0.07, -0.03, 0, 0, Math.PI / 2 - 0.3);
+      pivot.add(handle);
+      pivot.add(mesh(new THREE.SphereGeometry(0.012, 8, 6), M2, 0.075, 0.06, -0.03));
+      root.userData.bolt = handle;
+      addFlash(M, pivot, root, -0.93, 0.065, 0.3);
+      break;
+    }
+    case 'lmg': {
+      const M2 = DARK;
+      pivot.add(mesh(box(0.07, 0.09, 0.42), M2, 0, 0.06, -0.14));
+      pivot.add(mesh(box(0.075, 0.075, 0.24), M2, 0, 0.055, -0.46));
+      for (let i = 0; i < 5; i++) pivot.add(mesh(box(0.077, 0.012, 0.03), std({ color: 0x111111 }), 0, 0.075, -0.37 - i * 0.045));
+      pivot.add(mesh(cyl(0.016, 0.016, 0.34, 10), M2, 0, 0.06, -0.74, Math.PI / 2, 0, 0));
+      pivot.add(mesh(cyl(0.022, 0.02, 0.07, 10), M2, 0, 0.06, -0.92, Math.PI / 2, 0, 0));
+      pivot.add(mesh(box(0.1, 0.11, 0.1), std({ color: 0x3a4a30, roughness: 0.8 }), -0.07, -0.02, -0.16)); // короб с лентой
+      pivot.add(mesh(box(0.02, 0.03, 0.16), M2, 0, 0.13, -0.18));           // ручка
+      pivot.add(mesh(box(0.02, 0.04, 0.02), M2, 0, 0.115, -0.1));
+      pivot.add(mesh(box(0.02, 0.04, 0.02), M2, 0, 0.115, -0.26));
+      pivot.add(mesh(box(0.035, 0.1, 0.045), M2, 0, -0.03, -0.0, -0.3, 0, 0));
+      pivot.add(mesh(box(0.05, 0.09, 0.24), M2, 0, 0.04, 0.17, -0.08, 0, 0));
+      pivot.add(mesh(cyl(0.006, 0.006, 0.22, 6), M2, -0.02, 0.02, -0.66, Math.PI / 2 - 0.1, 0, 0)); // сошки
+      pivot.add(mesh(cyl(0.006, 0.006, 0.22, 6), M2, 0.02, 0.02, -0.66, Math.PI / 2 - 0.1, 0, 0));
+      addFlash(M, pivot, root, -0.98, 0.06, 0.34);
+      break;
+    }
+    case 'shotgun': {
+      const M2 = DARK, W = WOOD;
+      pivot.add(mesh(box(0.05, 0.075, 0.26), M2, 0, 0.06, -0.1));
+      pivot.add(mesh(cyl(0.016, 0.016, 0.56, 10), M2, 0, 0.08, -0.52, Math.PI / 2, 0, 0));
+      pivot.add(mesh(cyl(0.013, 0.013, 0.46, 10), M2, 0, 0.045, -0.46, Math.PI / 2, 0, 0)); // трубчатый магазин
+      const pump = mesh(cyl(0.024, 0.024, 0.16, 10), W, 0, 0.045, -0.42, Math.PI / 2, 0, 0);
+      pivot.add(pump);
+      root.userData.pump = pump;
+      pivot.add(mesh(box(0.034, 0.1, 0.045), W, 0, -0.02, 0.0, -0.35, 0, 0));
+      pivot.add(mesh(box(0.045, 0.085, 0.26), W, 0, 0.03, 0.17, -0.12, 0, 0));
+      pivot.add(mesh(new THREE.SphereGeometry(0.008, 6, 4), std({ color: 0xd8c070, metalness: 0.8, roughness: 0.3 }), 0, 0.1, -0.79));
+      addFlash(M, pivot, root, -0.84, 0.08, 0.36);
       break;
     }
     default:

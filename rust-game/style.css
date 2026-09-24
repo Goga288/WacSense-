@@ -264,3 +264,29 @@ body.invopen #touch { display: none; }
   body.touch #stats { top: 44px; bottom: auto; left: 14px; right: auto; }
   #feed { bottom: 230px; }
 }
+
+/* ---------- броня, прицел, производительность ---------- */
+.panel.doll { width: 250px; text-align: center; }
+#dollCanvas { width: 220px; height: 300px; background: radial-gradient(ellipse at center 40%, rgba(90, 100, 80, 0.35), rgba(0, 0, 0, 0.3)); border-radius: 4px; }
+#equipGrid { display: flex; gap: 6px; justify-content: center; margin-top: 8px; }
+#equipGrid .slot { position: relative; }
+#equipGrid .slot::after {
+  content: attr(data-label); position: absolute; bottom: -15px; left: 0; right: 0; font-size: 10px; color: #aaa; text-align: center;
+}
+#equipGrid .slot.empty .ic { opacity: 0.25; }
+#armorInfo { margin-top: 22px; font-size: 13px; color: #c9d3b8; }
+.stat.armor .bar > div { background: #8a96a6; }
+#fps { position: absolute; top: 44px; right: 14px; font: bold 13px monospace; background: rgba(0, 0, 0, 0.45); padding: 2px 8px; border-radius: 3px; }
+#perf { font-size: 13px; color: #bbb; line-height: 1.6; max-width: 520px; }
+#perf .err { color: #ff8a70; }
+#scope { position: fixed; inset: 0; pointer-events: none; z-index: 4;
+  background: radial-gradient(circle at center, transparent 0, transparent 34vh, #000 34.3vh); }
+#scope .lens { position: absolute; left: 50%; top: 50%; width: 68vh; height: 68vh; margin: -34vh 0 0 -34vh; border-radius: 50%;
+  background:
+    linear-gradient(#000, #000) center / 1.5px 100% no-repeat,
+    linear-gradient(#000, #000) center / 100% 1.5px no-repeat;
+  box-shadow: inset 0 0 40px 10px rgba(0, 0, 0, 0.7); }
+@media (max-height: 520px) {
+  .panel.doll { width: 170px; }
+  #dollCanvas { width: 150px; height: 190px; }
+}

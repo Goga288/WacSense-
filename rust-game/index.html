@@ -19,6 +19,7 @@
     <div id="compass"><div id="compassStrip"></div><div id="compassMarks"></div><div class="needle"></div></div>
     <div id="clock"></div>
     <div id="dmgDir"></div>
+    <div id="fps" class="hidden"></div>
     <div id="lowhp"></div>
     <div id="toast"></div>
     <div id="feed"></div>
@@ -30,9 +31,12 @@
       <div class="stat hp"><span>❤️</span><div class="bar"><div></div></div><b>100</b></div>
       <div class="stat food"><span>🍗</span><div class="bar"><div></div></div><b>100</b></div>
       <div class="stat water"><span>💧</span><div class="bar"><div></div></div><b>100</b></div>
+      <div class="stat armor"><span>🛡️</span><div class="bar"><div></div></div><b>0%</b></div>
     </div>
     <div id="hotbar"></div>
   </div>
+
+  <div id="scope" class="hidden"><div class="lens"></div></div>
 
   <!-- Сенсорное управление -->
   <div id="touch" class="hidden">
@@ -55,6 +59,12 @@
       <div id="craftList"></div>
       <div id="craftInfo"></div>
       <div id="craftQueue"></div>
+    </div>
+    <div class="panel doll">
+      <h3>Персонаж</h3>
+      <canvas id="dollCanvas" width="220" height="300"></canvas>
+      <div id="equipGrid"></div>
+      <div id="armorInfo"></div>
     </div>
     <div class="panel inv">
       <h3>Инвентарь <button id="quickBtn" title="Быстрое перемещение (для телефона)">⇄</button></h3>
@@ -92,7 +102,7 @@
     <div class="help desk">
       <b>WASD</b> — ходьба · <b>Shift</b> — бег · <b>Пробел</b> — прыжок · <b>Мышь</b> — обзор<br>
       <b>ЛКМ</b> — удар / действие · <b>ПКМ</b> — доп. действие · <b>E</b> — взаимодействие<br>
-      <b>Tab</b> — инвентарь и крафт · <b>1–6</b> — пояс · <b>R</b> — перезарядка / поворот · <b>M</b> — карта
+      <b>Tab</b> — инвентарь и крафт · <b>1–6</b> — пояс · <b>R</b> — перезарядка / поворот · <b>M</b> — карта · <b>F3</b> — FPS
     </div>
     <div class="help tips">
       Бейте деревья и камни, чтобы добыть ресурсы. Сделайте топор и кирку,
@@ -106,6 +116,7 @@
     <button id="btnResume" class="big">Продолжить</button>
     <button id="btnSound">🔊 Звук: вкл</button>
     <button id="btnQuality">🖥️ Графика</button>
+    <div id="perf"></div>
     <label class="sens">Чувствительность мыши <input id="sens" type="range" min="0.3" max="2.5" step="0.1" value="1"></label>
     <button id="btnPauseNew">Новая игра</button>
   </div>

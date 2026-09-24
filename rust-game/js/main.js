@@ -4,7 +4,8 @@ import { World, HALF, NODE } from './world.js';
 import { Building, PIECE_ORDER, PIECES, TIERS, DEPLOY } from './building.js';
 import { Entities } from './entities.js';
 import { UI } from './ui.js';
-import { ITEMS, Inventory, FIST, costText, rollLoot } from './items.js';
+import { ITEMS, Inventory, FIST, costText, rollLoot, ARMOR_SLOTS, ARMOR_WEIGHT } from './items.js';
+import { loadExternalModels } from './extmodels.js';
 import { initAudio, sfx as playSfx, setMuted, updateAmbient } from './audio.js';
 import { Y } from './ysdk.js';
 import { clamp, lerp, smoothstep, rand, randi } from './util.js';
@@ -78,6 +79,8 @@ class Game {
     };
     this.inv = new Inventory(30);
     this.inv.onChange = () => { this.invDirty = true; };
+    this.equip = new Inventory(3); // голова, тело, ноги
+    this.equip.onChange = () => { this.invDirty = true; };
     this.slot = 0;
     this.craftQueue = [];
     this.timers = [];
@@ -120,6 +123,8 @@ class Game {
     this.ui = new UI(this);
     this.weather = new Weather(this);
     this.events = new Events(this);
+    this.extModels = await loadExternalModels();
+    this.detectGpu();
     this.bindInput();
     this.bindMenus();
     Y.onPause = () => { if (this.state === 'play') this.pause(); setMuted(true); };
@@ -146,6 +151,23 @@ class Game {
     Y.ready();
     this.last = performance.now();
     requestAnimationFrame((t) => this.frame(t));
+  }
+
+  detectGpu() {
+    let name = 'неизвестно';
+    try {
+      const gl = this.renderer.getContext();
+      const ext = gl.getExtension('WEBGL_debug_renderer_info');
+      name = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+    } catch (e) { /* ignore */ }
+    this.gpuName = String(name).replace(/^ANGLE \((.*)\)$/, '$1');
+    this.softwareGpu = /swiftshader|llvmpipe|software|microsoft basic/i.test(this.gpuName);
+  }
+
+  perfText() {
+    const warn = this.softwareGpu
+      ? '<br><span class="err">Видеокарта не используется! Включите «Аппаратное ускорение» в настройках браузера.</span>' : '';
+    return `FPS: <b>${Math.round(this.fps || 0)}</b> · Графика: ${QUALITY[this.qualityKey].name}<br>Видеокарта: ${this.gpuName}${warn}`;
   }
 
   // ---------- Жизненный цикл ----------
@@ -226,6 +248,7 @@ class Game {
     this.lmb = false;
     this.keys = {};
     $('pause').classList.remove('hidden');
+    $('perf').innerHTML = this.perfText();
     Y.gameplayStop();
     this.save();
   }
@@ -249,9 +272,10 @@ class Game {
     this.ui.toggleMap(false);
     this.lmb = false;
     this.keys = {};
-    const items = this.inv.slots.filter(Boolean);
+    const items = this.inv.slots.filter(Boolean).concat(this.equip.slots.filter(Boolean));
     if (items.length) this.dropBag(p.pos.x, p.pos.y, p.pos.z, items, 1200);
     this.inv.load([]);
+    this.equip.load([]);
     this.craftQueue = [];
     this.building.hideGhost();
     $('deathReason').textContent = reason ? `Причина: ${reason}` : '';
@@ -326,6 +350,11 @@ class Game {
         case 'KeyR': this.pressR(); break;
         case 'KeyM': this.toggleMap(); break;
         case 'KeyQ': this.secondary(); break;
+        case 'F3':
+          e.preventDefault();
+          this.showFps = !this.showFps;
+          document.getElementById('fps').classList.toggle('hidden', !this.showFps);
+          break;
         default:
           if (e.code.startsWith('Digit')) {
             const n = +e.code.slice(5);
@@ -625,9 +654,19 @@ class Game {
   }
 
   // ---------- Урон игроку ----------
+  armorValue() {
+    let v = 0;
+    ARMOR_SLOTS.forEach((slot, i) => {
+      const s = this.equip.slots[i];
+      if (s && ITEMS[s.id].armor) v += ITEMS[s.id].armor.prot * ARMOR_WEIGHT[slot];
+    });
+    return v;
+  }
+
   damagePlayer(dmg, src, from) {
     const p = this.player;
     if (!p.alive || this.state === 'menu') return;
+    if (src !== 'Голод' && src !== 'Жажда' && src !== 'Падение') dmg *= 1 - this.armorValue();
     if (from) {
       const bearing = Math.atan2(from.x - p.pos.x, -(from.z - p.pos.z));
       this.ui.damageDir(bearing + p.yaw);
@@ -788,24 +827,36 @@ class Game {
     s.ammo--;
     this.cool = g.rate;
     this.recoilT = 0;
-    this.sfx(g.auto ? 'rifle' : 'shot');
+    this.sfx(g.snd || 'shot');
     this.shake = Math.max(this.shake, g.auto ? 0.3 : 0.6);
     this.muzzleT = 0.05;
-    const [o, d] = this.eyeRay();
+    if (g.cycle) this.cycleT = 0;
+    const [o0, d0] = this.eyeRay();
+    const o = o0.clone(), dir0 = d0.clone();
     const moving = this.player.moveSpeed > 1 ? 1.8 : 1;
-    const sp = g.spread * (this.aim ? 0.35 : 1) * moving * (this.player.onGround ? 1 : 2.5);
-    d.x += rand(-sp, sp);
-    d.y += rand(-sp, sp);
-    d.z += rand(-sp, sp);
-    d.normalize();
+    const base = this.aim && g.adsSpread !== undefined ? g.adsSpread : g.spread * (this.aim ? 0.35 : 1);
+    const sp = base * moving * (this.player.onGround ? 1 : 2.5);
     const rec = (g.recoil || 0.025) * (this.aim ? 0.6 : 1);
     this.player.pitch = Math.min(1.55, this.player.pitch + rec);
     this.player.yaw += rand(-rec, rec) * 0.5;
+    const pellets = g.pellets || 1;
+    for (let k = 0; k < pellets; k++) {
+      const d = dir0.clone();
+      d.x += rand(-sp, sp);
+      d.y += rand(-sp, sp);
+      d.z += rand(-sp, sp);
+      d.normalize();
+      this.fireRay(o, d, g, k === 0);
+    }
+    this.invDirty = true;
+  }
+
+  fireRay(o, d, g, tracer) {
     const hit = this.raycast(o, d, g.range);
     const end = hit ? hit.point : o.clone().addScaledVector(d, g.range);
     const from = o.clone().addScaledVector(d, 0.8);
     from.y -= 0.15;
-    this.ents.tracer(from, end);
+    if (tracer || Math.random() < 0.3) this.ents.tracer(from, end);
     if (hit) {
       if (hit.kind === 'mob' && !hit.obj.dead) {
         const m = hit.obj;
@@ -1135,7 +1186,13 @@ class Game {
       this.camera.rotation.y += (Math.random() - 0.5) * k;
       this.camera.rotation.z += (Math.random() - 0.5) * k * 0.5;
     }
-    const fov = this.aim ? 50 : 72;
+    const hs = this.player.alive ? this.held() : null;
+    const scoped = !!(this.aim && hs && ITEMS[hs.id].gun && ITEMS[hs.id].gun.scope);
+    if (scoped !== this.scoped) {
+      this.scoped = scoped;
+      document.getElementById('scope').classList.toggle('hidden', !scoped);
+    }
+    const fov = scoped ? 16 : this.aim ? 50 : 72;
     if (Math.abs(this.camera.fov - fov) > 0.1) {
       this.camera.fov = lerp(this.camera.fov, fov, 0.25);
       this.camera.updateProjectionMatrix();
@@ -1168,7 +1225,7 @@ class Game {
     const vm = this.vm;
     const pv = vm.userData.pivot;
     const it = s ? ITEMS[s.id] : null;
-    vm.visible = !this.ui.open && this.player.alive;
+    vm.visible = !this.ui.open && this.player.alive && !this.scoped;
     const aim = this.aim && it && (it.gun || it.ranged);
     let x = aim ? 0.02 : 0.3, y = aim ? -0.2 : -0.33, z = -0.62;
     if (it && it.model === 'spear') { x = 0.25; y = -0.27; z = -0.35; }
@@ -1216,6 +1273,13 @@ class Game {
     rz += this.sway.x * 2.5;
     ry += this.sway.x * 1.5;
     pv.rotation.set(rx, ry, rz);
+    if (this.cycleT !== undefined && this.cycleT < 1) {
+      this.cycleT = Math.min(1, this.cycleT + dt * 1.4);
+      const k = this.cycleT > 0.3 ? Math.sin(((this.cycleT - 0.3) / 0.7) * Math.PI) : 0;
+      if (vm.userData.bolt) vm.userData.bolt.position.z = -0.03 + k * 0.08;
+      if (vm.userData.pump) vm.userData.pump.position.z = -0.42 + k * 0.09;
+      rz -= k * 0.15;
+    }
     if (vm.userData.flames) {
       const tt = performance.now() / 1000;
       for (const f of vm.userData.flames) {
@@ -1290,8 +1354,18 @@ class Game {
   // ---------- Цикл ----------
   frame(now) {
     requestAnimationFrame((t) => this.frame(t));
-    const dt = Math.min(0.05, (now - this.last) / 1000);
+    const rawDt = (now - this.last) / 1000;
+    const dt = Math.min(0.05, rawDt);
     this.last = now;
+    if (rawDt > 0) this.fps = this.fps ? this.fps * 0.95 + (1 / rawDt) * 0.05 : 1 / rawDt;
+    this.perfT = (this.perfT || 0) - rawDt;
+    if (this.perfT <= 0) {
+      this.perfT = 0.5;
+      const pe = document.getElementById('perf');
+      if (pe && this.state === 'paused') pe.innerHTML = this.perfText();
+      const fh = document.getElementById('fps');
+      if (fh && this.showFps) fh.textContent = `${Math.round(this.fps)} FPS`;
+    }
     if (this.state === 'play' || this.state === 'dead') this.update(dt);
     else if (this.state === 'menu') {
       // медленный облёт в меню
@@ -1471,7 +1545,7 @@ class Game {
     return {
       v: 1, t: Date.now(), day: this.dayTime,
       p: { x: p.pos.x, y: p.pos.y, z: p.pos.z, yaw: p.yaw, pitch: p.pitch, hp: p.hp, food: p.food, water: p.water, alive: p.alive },
-      inv: this.inv.serialize(), slot: this.slot,
+      inv: this.inv.serialize(), slot: this.slot, equip: this.equip.serialize(),
       b: this.building.serialize(),
       bags: this.ents.serializeBags(),
       bag: this.spawnBag ? { x: this.spawnBag.x, z: this.spawnBag.z } : null,
@@ -1502,6 +1576,7 @@ class Game {
       this.building.load(s.b);
       this.ents.loadBags(s.bags);
       this.inv.load(s.inv);
+      this.equip.load(s.equip || []);
       this.slot = s.slot || 0;
       const p = this.player;
       p.pos.set(s.p.x, s.p.y, s.p.z);

@@ -1,5 +1,6 @@
 // Интерфейс: HUD, инвентарь, крафт, контейнеры, карта.
-import { ITEMS, RECIPES, CATEGORIES, costText } from './items.js';
+import { ITEMS, RECIPES, CATEGORIES, costText, ARMOR_SLOTS } from './items.js';
+import { Doll } from './doll.js';
 import { WORLD, HALF } from './world.js';
 import { PIECES, TIERS } from './building.js';
 
@@ -26,6 +27,7 @@ export class UI {
       itemInfo: $('itemInfo'), cursor: $('cursorItem'), clock: $('clock'),
       map: $('mapScreen'), mapCanvas: $('mapCanvas'), mapMarkers: $('mapMarkers'),
       compassStrip: $('compassStrip'), compassMarks: $('compassMarks'), dmgDir: $('dmgDir'), lowhp: $('lowhp'),
+      equipGrid: $('equipGrid'), armorInfo: $('armorInfo'), armor: document.querySelector('#stats .armor'),
       hp: document.querySelector('#stats .hp'), food: document.querySelector('#stats .food'),
       water: document.querySelector('#stats .water'),
     };
@@ -62,6 +64,18 @@ export class UI {
     this.invSlots = [...this.el.invHot.children, ...this.el.invGrid.children];
     this.invSlotEls = new Array(30);
     for (const s of this.invSlots) this.invSlotEls[+s.dataset.idx] = s;
+
+    // слоты брони
+    const labels = { head: 'Голова', chest: 'Тело', legs: 'Ноги' };
+    const hints = { head: '⛑️', chest: '🛡️', legs: '👖' };
+    this.eqEls = ARMOR_SLOTS.map((slot, i) => {
+      const el = this.bindSlot(this.makeSlot(), 'eq', i);
+      el.dataset.label = labels[slot];
+      el.dataset.hint = hints[slot];
+      this.el.equipGrid.appendChild(el);
+      return el;
+    });
+    try { this.doll = new Doll($('dollCanvas'), game.gfx.M); } catch (e) { this.doll = null; }
 
     // категории крафта
     for (const c of CATEGORIES) {
@@ -107,7 +121,15 @@ export class UI {
   }
 
   invOf(where) {
+    if (where === 'eq') return this.game.equip;
     return where === 'inv' ? this.game.inv : this.container && this.container.inv;
+  }
+
+  // Можно ли положить предмет в слот брони.
+  fits(where, idx, stack) {
+    if (where !== 'eq' || !stack) return true;
+    const a = ITEMS[stack.id].armor;
+    return !!a && a.slot === ARMOR_SLOTS[idx];
   }
 
   slotClick(where, idx, right, shift) {
@@ -116,6 +138,26 @@ export class UI {
     const s = inv.slots[idx];
     if (!this.held) {
       if (!s) return;
+      const ar = ITEMS[s.id].armor;
+      if (shift && where !== 'eq' && ar) {
+        // быстро надеть броню
+        const ei = ARMOR_SLOTS.indexOf(ar.slot);
+        const eq = this.game.equip;
+        inv.slots[idx] = eq.slots[ei];
+        eq.slots[ei] = s;
+        this.game.sfx('equip');
+        inv.changed(); eq.changed();
+        this.refresh();
+        return;
+      }
+      if (shift && where === 'eq') {
+        inv.slots[idx] = null;
+        const left = this.game.inv.addStack(s, 0);
+        if (left > 0) inv.slots[idx] = s;
+        inv.changed();
+        this.refresh();
+        return;
+      }
       if (shift) {
         // быстрое перемещение
         let target = null, from = 0;
@@ -134,6 +176,11 @@ export class UI {
         inv.slots[idx] = null;
       }
     } else {
+      if (!this.fits(where, idx, this.held)) {
+        this.notify('Сюда можно надеть только подходящую броню');
+        return;
+      }
+      if (where === 'eq') this.game.sfx('equip');
       const max = ITEMS[this.held.id].stack;
       if (!s) {
         if (right) {
@@ -182,6 +229,14 @@ export class UI {
     for (let i = 0; i < 6; i++) this.fillSlot(this.hudSlots[i], inv.slots[i], i === this.game.slot);
     if (!this.open) return;
     for (let i = 0; i < 30; i++) this.fillSlot(this.invSlotEls[i], inv.slots[i], i === this.game.slot);
+    const eq = this.game.equip.slots;
+    this.eqEls.forEach((el, i) => {
+      this.fillSlot(el, eq[i]);
+      el.classList.toggle('empty', !eq[i]);
+      if (!eq[i]) el.children[0].textContent = el.dataset.hint;
+    });
+    this.el.armorInfo.textContent = `Защита: ${Math.round(this.game.armorValue() * 100)}%`;
+    if (this.doll) this.doll.setEquip(eq);
     if (this.container) {
       const cs = this.container.inv.slots;
       if (this.el.contGrid.children.length !== cs.length) {
@@ -225,10 +280,11 @@ export class UI {
     const it = ITEMS[s.id];
     let d = '';
     if (it.melee) d = `Урон ${it.melee.dmg} · Добыча дерева ×${it.melee.tree} · руды ×${it.melee.ore}`;
-    else if (it.gun) d = `Урон ${it.gun.dmg} · Магазин ${it.gun.mag} · R — перезарядка`;
+    else if (it.gun) d = `Урон ${it.gun.dmg}${it.gun.pellets ? '×' + it.gun.pellets : ''} · Магазин ${it.gun.mag} · R — перезарядка · ПКМ — ${it.gun.scope ? 'оптика' : 'прицел'}`;
     else if (it.ranged) d = `Урон ${it.ranged.dmg} · Нужны стрелы`;
     else if (it.eat) d = `Еда +${it.eat.food}${it.eat.hp < 0 ? ' · лучше пожарить на костре' : ''}`;
     else if (it.heal) d = `Лечение +${it.heal}`;
+    else if (it.armor) d = `Броня: ${{ head: 'голова', chest: 'тело', legs: 'ноги' }[it.armor.slot]}, защита ${Math.round(it.armor.prot * 100)}% · Shift+клик — надеть`;
     else if (it.deploy) d = 'Возьмите в руки и нажмите ЛКМ, чтобы поставить';
     else if (it.special === 'plan') d = 'ЛКМ — строить, ПКМ — выбрать тип, R — повернуть';
     else if (it.special === 'hammer') d = 'ЛКМ — улучшить постройку, ПКМ — разобрать/подобрать';
@@ -398,7 +454,7 @@ export class UI {
   }
 
   updateStats(p) {
-    const k = `${Math.ceil(p.hp)}|${Math.ceil(p.food)}|${Math.ceil(p.water)}`;
+    const k = `${Math.ceil(p.hp)}|${Math.ceil(p.food)}|${Math.ceil(p.water)}|${this.game.armorValue()}`;
     if (k === this.lastStats) return;
     this.lastStats = k;
     const set = (el, v, max) => {
@@ -409,6 +465,10 @@ export class UI {
     set(this.el.hp, p.hp, 100);
     set(this.el.food, p.food, 100);
     set(this.el.water, p.water, 100);
+    const av = Math.round(this.game.armorValue() * 100);
+    this.el.armor.querySelector('.bar > div').style.width = av + '%';
+    this.el.armor.querySelector('b').textContent = av + '%';
+    this.el.armor.style.display = av > 0 ? '' : 'none';
     this.el.lowhp.classList.toggle('on', p.hp < 25 && p.alive);
   }
 
@@ -421,8 +481,10 @@ export class UI {
     const h = Math.floor(g.dayTime * 24), m = Math.floor((g.dayTime * 24 - h) * 60);
     const ct = `${h < 6 || h >= 20 ? '🌙' : '☀️'} ${String(h).padStart(2, '0')}:${String(Math.floor(m / 10) * 10).padStart(2, '0')}`;
     if (this._clock !== ct) { this._clock = ct; this.el.clock.textContent = ct; }
-    if (this.open) this.renderCraft();
-    else this.renderQueue();
+    if (this.open) {
+      this.renderCraft();
+      if (this.doll) this.doll.render(dt);
+    } else this.renderQueue();
     if (!this.el.map.classList.contains('hidden')) this.renderMapMarkers();
   }
 

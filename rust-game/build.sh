@@ -13,6 +13,7 @@ sed 's#<script type="module" src="js/main.js"></script>#<script src="game.js"></
 grep -q 'src="game.js"' dist/index.html || { echo "Не удалось подменить скрипт в index.html" >&2; exit 1; }
 cp style.css dist/
 cp js/three.LICENSE dist/
+if [ -d models ]; then cp -r models dist/; fi
 
 OUT=rusty-island.zip
 rm -f "$OUT"
@@ -20,7 +21,9 @@ python3 - "$OUT" <<'EOF'
 import sys, os, zipfile
 out = sys.argv[1]
 with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
-    for f in sorted(os.listdir('dist')):
-        z.write(os.path.join('dist', f), f)
+    for root, _, files in os.walk('dist'):
+        for f in sorted(files):
+            full = os.path.join(root, f)
+            z.write(full, os.path.relpath(full, 'dist'))
 EOF
 echo "Готово: $(pwd)/$OUT ($(du -h "$OUT" | cut -f1))"

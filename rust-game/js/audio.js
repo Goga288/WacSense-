@@ -139,6 +139,21 @@ export function sfx(name, vol = 1) {
       noise(0.08, 5000, 'highpass', 0.5 * vol);
       tone(150, 0.12, 'sawtooth', 0.35 * vol, 50);
       break;
+    case 'sniper':
+      noise(0.5, 2000, 'lowpass', 1.4 * vol);
+      noise(0.12, 6000, 'highpass', 0.6 * vol);
+      tone(90, 0.3, 'sawtooth', 0.45 * vol, 35);
+      setTimeout(() => ctx && (tone(700, 0.05, 'square', 0.08 * vol, 500), noise(0.08, 3000, 'bandpass', 0.2 * vol, 3)), 450);
+      break;
+    case 'shotgun':
+      noise(0.45, 1200, 'lowpass', 1.5 * vol);
+      tone(80, 0.25, 'sawtooth', 0.5 * vol, 35);
+      setTimeout(() => ctx && (noise(0.07, 1500, 'bandpass', 0.3 * vol, 2), setTimeout(() => ctx && noise(0.07, 1100, 'bandpass', 0.3 * vol, 2), 120)), 380);
+      break;
+    case 'equip':
+      noise(0.1, 800, 'bandpass', 0.35 * vol, 2);
+      tone(300, 0.08, 'triangle', 0.1 * vol, 200);
+      break;
     case 'thunder':
       noise(3.2, 160, 'lowpass', 1.6 * vol);
       noise(1.2, 600, 'lowpass', 0.8 * vol);

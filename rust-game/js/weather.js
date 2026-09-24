@@ -21,19 +21,38 @@ export class Weather {
     this.flash = 0;
     this.nextBolt = 8;
 
-    const N = game.gfx.q.grass > 0 ? 4000 : 1500;
-    this.N = N;
-    this.drops = new Float32Array(N * 3);
+    // капли дождя целиком считаются на видеокарте (вершинный шейдер)
+    const N = game.gfx.q.grass > 0 ? 6000 : 2000;
+    const pos = new Float32Array(N * 6);
+    const seed = new Float32Array(N * 6);
+    const top = new Float32Array(N * 2);
     for (let i = 0; i < N; i++) {
-      this.drops[i * 3] = rand(-25, 25);
-      this.drops[i * 3 + 1] = rand(-6, 24);
-      this.drops[i * 3 + 2] = rand(-25, 25);
+      const sx = rand(0, 50), sy = rand(0, 30), sz = rand(0, 50);
+      for (let k = 0; k < 2; k++) {
+        seed.set([sx, sy, sz], i * 6 + k * 3);
+        top[i * 2 + k] = k;
+      }
     }
     this.geo = new THREE.BufferGeometry();
-    this.pos = new Float32Array(N * 6);
-    this.geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
-    this.lines = new THREE.LineSegments(this.geo, new THREE.LineBasicMaterial({
-      color: 0xb8c4d0, transparent: true, opacity: 0, depthWrite: false,
+    this.geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    this.geo.setAttribute('seed', new THREE.BufferAttribute(seed, 3));
+    this.geo.setAttribute('top', new THREE.BufferAttribute(top, 1));
+    this.uni = { uTime: { value: 0 }, uCam: { value: new THREE.Vector3() }, uOpacity: { value: 0 } };
+    this.lines = new THREE.LineSegments(this.geo, new THREE.ShaderMaterial({
+      uniforms: this.uni,
+      vertexShader: `
+        attribute vec3 seed; attribute float top;
+        uniform float uTime; uniform vec3 uCam;
+        void main() {
+          vec3 l = vec3(mod(seed.x + uTime * 1.5, 50.0) - 25.0, mod(seed.y - uTime * 24.0, 30.0) - 6.0, mod(seed.z + uTime * 0.8, 50.0) - 25.0);
+          vec3 p = uCam + l + top * vec3(-0.045, 0.55, -0.024);
+          gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
+        }`,
+      fragmentShader: `
+        uniform float uOpacity;
+        void main() { gl_FragColor = vec4(0.72, 0.77, 0.82, uOpacity); }`,
+      transparent: true,
+      depthWrite: false,
     }));
     this.lines.frustumCulled = false;
     this.lines.visible = false;
@@ -67,27 +86,9 @@ export class Weather {
     // капли
     const vis = this.rain > 0.02 && cam.y > -0.5;
     this.lines.visible = vis;
-    if (vis) {
-      this.lines.material.opacity = Math.min(0.5, this.rain * 0.55);
-      const d = this.drops, p = this.pos;
-      const fall = 24 * dt, wx = 1.5, wz = 0.8;
-      for (let i = 0; i < this.N; i++) {
-        const k = i * 3;
-        d[k + 1] -= fall;
-        d[k] += wx * dt;
-        d[k + 2] += wz * dt;
-        if (d[k + 1] < -6) {
-          d[k + 1] += 30;
-          d[k] = rand(-25, 25);
-          d[k + 2] = rand(-25, 25);
-        }
-        const x = cam.x + d[k], y = cam.y + d[k + 1], z = cam.z + d[k + 2];
-        const j = i * 6;
-        p[j] = x; p[j + 1] = y; p[j + 2] = z;
-        p[j + 3] = x - wx * 0.03; p[j + 4] = y + 0.55; p[j + 5] = z - wz * 0.03;
-      }
-      this.geo.attributes.position.needsUpdate = true;
-    }
+    this.uni.uTime.value += dt;
+    this.uni.uCam.value.copy(cam);
+    this.uni.uOpacity.value = Math.min(0.5, this.rain * 0.55);
 
     // молнии
     if (this.storm) {

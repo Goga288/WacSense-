@@ -1,6 +1,11 @@
 // Графика: качество, материалы и шейдеры, небо, окружение, облака, трава, постобработка.
 import * as THREE from './three.module.min.js';
-import { Sky } from './Sky.js';
+import { Sky } from './vendor/Sky.js';
+import { EffectComposer } from './vendor/postprocessing/EffectComposer.js';
+import { RenderPass } from './vendor/postprocessing/RenderPass.js';
+import { GTAOPass } from './vendor/postprocessing/GTAOPass.js';
+import { UnrealBloomPass } from './vendor/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from './vendor/postprocessing/OutputPass.js';
 import { buildTextures } from './textures.js';
 import { smoothstep, lerp, mulberry32 } from './util.js';
 
@@ -9,8 +14,10 @@ export const QUALITY = {
   low: { name: 'Низкая', shadows: 0, grass: 0, grassCell: 1.6, post: false, env: false, tex: 512, pr: 1.0, aniso: 4 },
   medium: { name: 'Средняя', shadows: 2048, grass: 3000, grassCell: 1.35, post: false, env: true, tex: 1024, pr: 1.5, aniso: 16 },
   high: { name: 'Высокая', shadows: 4096, grass: 6000, grassCell: 1.0, post: false, env: true, tex: 1024, pr: 2, aniso: 16 },
+  // «Ультра» нагружает видеокарту: затенение в углах (GTAO), свечение ярких источников, MSAA ×4.
+  ultra: { name: 'Ультра', shadows: 4096, grass: 9000, grassCell: 0.85, post: false, ao: true, bloom: true, env: true, tex: 1024, pr: 2, aniso: 16 },
 };
-export const QUALITY_ORDER = ['low', 'medium', 'high'];
+export const QUALITY_ORDER = ['low', 'medium', 'high', 'ultra'];
 
 export const wind = { value: 0 };
 
@@ -261,6 +268,7 @@ export class Gfx {
     this.sky = new Sky();
     this.sky.scale.setScalar(1000);
     this.sky.frustumCulled = false;
+    this.sky.userData.noAO = true;
     scene.add(this.sky);
     const u = this.sky.material.uniforms;
     u.turbidity.value = 2.5;
@@ -379,72 +387,58 @@ export class Gfx {
     return { elev, sd, day, set, fog };
   }
 
-  // ---------- постобработка ----------
+  // ---------- постобработка (только «Ультра») ----------
   initPost(w, h) {
-    if (!this.q.post) return;
-    const r = this.game.renderer;
+    if (!this.q.ao && !this.q.bloom) return;
+    const g = this.game, r = g.renderer;
     const pr = r.getPixelRatio();
-    this.rt = new THREE.WebGLRenderTarget(Math.floor(w * pr), Math.floor(h * pr), {
-      type: THREE.HalfFloatType, samples: this.qkey === 'high' ? 4 : 0,
-    });
-    this.postScene = new THREE.Scene();
-    this.postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    this.postMat = new THREE.ShaderMaterial({
-      uniforms: { tDiffuse: { value: this.rt.texture }, uTime: { value: 0 }, uHurt: { value: 0 }, uWater: { value: 0 } },
-      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
-      fragmentShader: `
-        uniform sampler2D tDiffuse; uniform float uTime; uniform float uHurt; uniform float uWater;
-        varying vec2 vUv;
-        void main() {
-          vec2 uv = vUv;
-          if (uWater > 0.5) uv += vec2(sin(uv.y * 30.0 + uTime * 2.0), cos(uv.x * 25.0 + uTime * 1.7)) * 0.003;
-          vec3 c = texture2D(tDiffuse, uv).rgb;
-          // цветокоррекция в духе суровой выживалки: чуть меньше насыщенности, тёплые света
-          float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-          c = mix(vec3(l), c, 0.82);
-          c *= vec3(1.03, 1.0, 0.93);
-          gl_FragColor = vec4(c, 1.0);
-          #include <tonemapping_fragment>
-          #include <colorspace_fragment>
-          vec3 o = gl_FragColor.rgb;
-          o = mix(o, o * o * (3.0 - 2.0 * o), 0.22);
-          vec2 d = vUv - 0.5;
-          o *= 1.0 - dot(d, d) * 0.55;
-          o = mix(o, vec3(0.5, 0.0, 0.0), uHurt * (0.3 + dot(d, d)));
-          float n = fract(sin(dot(vUv * 1000.0 + uTime, vec2(12.9898, 78.233))) * 43758.5453);
-          o += (n - 0.5) * 0.02;
-          gl_FragColor = vec4(o, 1.0);
-        }`,
-      depthTest: false,
-      depthWrite: false,
-    });
-    this.postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.postMat));
+    const rt = new THREE.WebGLRenderTarget(Math.floor(w * pr), Math.floor(h * pr), { type: THREE.HalfFloatType, samples: 4 });
+    this.composer = new EffectComposer(r, rt);
+    this.composer.addPass(new RenderPass(g.scene, g.camera));
+    if (this.q.ao) {
+      const ao = new GTAOPass(g.scene, g.camera, w, h);
+      ao.updateGtaoMaterial({ radius: 0.9, distanceExponent: 1.6, thickness: 1.5, scale: 1.25, samples: 16, distanceFallOff: 1, screenSpaceRadius: false });
+      ao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 5, rings: 2, samples: 16 });
+      ao.blendIntensity = 0.9;
+      // листва, трава, вода и спрайты не участвуют в затенении (иначе видны тёмные квадраты)
+      ao.overrideVisibility = function () {
+        const cache = this._visibilityCache;
+        this.scene.traverse((o) => {
+          cache.set(o, o.visible);
+          const m = o.material;
+          if (o.isPoints || o.isLine || o.isSprite || o.userData.noAO) { o.visible = false; return; }
+          if (m && !Array.isArray(m) && (m.alphaTest > 0 || m.transparent)) o.visible = false;
+        });
+      };
+      this.ao = ao;
+      this.composer.addPass(ao);
+    }
+    this.vmPass = new RenderPass(g.vmScene, g.vmCamera);
+    this.vmPass.clear = false;
+    this.vmPass.clearDepth = true;
+    this.composer.addPass(this.vmPass);
+    if (this.q.bloom) {
+      this.bloom = new UnrealBloomPass(new THREE.Vector2(w, h), 0.28, 0.25, 1.4);
+      this.composer.addPass(this.bloom);
+    }
+    this.composer.addPass(new OutputPass());
   }
 
   resize(w, h) {
-    if (!this.rt) return;
-    const pr = this.game.renderer.getPixelRatio();
-    this.rt.setSize(Math.floor(w * pr), Math.floor(h * pr));
+    if (this.composer) this.composer.setSize(w, h);
   }
 
-  render(scene, camera, vmScene, vmCamera, drawVm, time, hurt, underwater) {
+  render(scene, camera, vmScene, vmCamera, drawVm) {
     const r = this.game.renderer;
-    if (this.rt) {
-      r.setRenderTarget(this.rt);
-      r.clear();
-      r.render(scene, camera);
-      if (drawVm) { r.clearDepth(); r.render(vmScene, vmCamera); }
-      r.setRenderTarget(null);
-      this.postMat.uniforms.uTime.value = time % 100;
-      this.postMat.uniforms.uHurt.value = hurt;
-      this.postMat.uniforms.uWater.value = underwater ? 1 : 0;
-      r.render(this.postScene, this.postCam);
-    } else {
-      r.setRenderTarget(null);
-      r.clear();
-      r.render(scene, camera);
-      if (drawVm) { r.clearDepth(); r.render(vmScene, vmCamera); }
+    if (this.composer) {
+      this.vmPass.enabled = drawVm;
+      this.composer.render();
+      return;
     }
+    r.setRenderTarget(null);
+    r.clear();
+    r.render(scene, camera);
+    if (drawVm) { r.clearDepth(); r.render(vmScene, vmCamera); }
   }
 }
 
