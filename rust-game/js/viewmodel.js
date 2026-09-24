@@ -145,6 +145,39 @@ export function buildViewModel(item, M) {
         root.userData.flash = fl;
       }
       break;
+    case 'torch': {
+      pivot.add(mesh(cyl(0.018, 0.024, 0.55), WOOD, 0, 0.18, 0));
+      pivot.add(mesh(cyl(0.036, 0.03, 0.13), std({ color: 0x3a2a1a, roughness: 1 }), 0, 0.46, 0));
+      const flames = [];
+      for (let i = 0; i < 4; i++) {
+        const fl = new THREE.Sprite(M.flame.clone());
+        fl.position.set((Math.random() - 0.5) * 0.04, 0.55, (Math.random() - 0.5) * 0.04);
+        fl.userData.ph = Math.random();
+        pivot.add(fl);
+        flames.push(fl);
+      }
+      root.userData.flames = flames;
+      break;
+    }
+    case 'rifle': {
+      const metal = DARK, wood = WOOD;
+      pivot.add(mesh(box(0.05, 0.075, 0.34), metal, 0, 0.06, -0.12));
+      pivot.add(mesh(box(0.056, 0.065, 0.22), wood, 0, 0.055, -0.38));
+      pivot.add(mesh(cyl(0.012, 0.012, 0.3, 10), metal, 0, 0.07, -0.62, Math.PI / 2, 0, 0));
+      pivot.add(mesh(cyl(0.016, 0.016, 0.05, 10), metal, 0, 0.07, -0.78, Math.PI / 2, 0, 0));
+      pivot.add(mesh(box(0.01, 0.035, 0.012), metal, 0, 0.1, -0.72));
+      pivot.add(mesh(box(0.035, 0.15, 0.06), metal, 0, -0.04, -0.2, 0.35, 0, 0));
+      pivot.add(mesh(box(0.034, 0.1, 0.045), wood, 0, -0.02, -0.02, -0.35, 0, 0));
+      pivot.add(mesh(box(0.042, 0.085, 0.24), wood, 0, 0.035, 0.14, -0.08, 0, 0));
+      pivot.add(mesh(box(0.012, 0.02, 0.1), metal, 0, 0.11, -0.12));
+      const fl = new THREE.Sprite(M.flame.clone());
+      fl.scale.setScalar(0.28);
+      fl.position.set(0, 0.07, -0.85);
+      fl.visible = false;
+      pivot.add(fl);
+      root.userData.flash = fl;
+      break;
+    }
     default:
       if (item) {
         const c = ITEM_COLORS[item.id] ?? 0xaaaaaa;

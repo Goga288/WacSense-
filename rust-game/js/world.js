@@ -378,8 +378,9 @@ export class World {
   }
 
   addCrate(x, y, z, loot) {
-    const military = loot === 'military';
-    const sx = military ? 1.4 : 1.0, sy = military ? 0.6 : 0.8, sz = military ? 0.7 : 0.8;
+    const drop = loot === 'airdrop';
+    const military = loot === 'military' || drop;
+    const sx = drop ? 1.4 : military ? 1.4 : 1.0, sy = drop ? 1.0 : military ? 0.6 : 0.8, sz = drop ? 1.4 : military ? 0.7 : 0.8;
     const m = military ? this.M.crateMil : this.M.crate;
     const mesh = new THREE.Group();
     const body = new THREE.Mesh(worldBox(sx, sy, sz, 1.2), m);
@@ -399,7 +400,7 @@ export class World {
     const crate = {
       kind: 'crate', loot, x, y, z, mesh, inv: new Inventory(12), respawnAt: 0,
       hx: Math.max(sx, sz) / 2, hy: sy,
-      name: military ? 'Военный ящик' : 'Ящик',
+      name: drop ? 'Аирдроп' : military ? 'Военный ящик' : 'Ящик',
     };
     crate.col = this.addCollider(x - crate.hx, y, z - crate.hx, x + crate.hx, y + sy, z + crate.hx, crate);
     this.fillCrate(crate);
@@ -415,7 +416,17 @@ export class World {
     if (!c.col) c.col = this.addCollider(c.x - c.hx, c.y, c.z - c.hx, c.x + c.hx, c.y + c.hy, c.z + c.hx, c);
   }
 
+  removeCrate(c) {
+    this.scene.remove(c.mesh);
+    this.removeCollider(c.col);
+    c.col = null;
+    c.active = false;
+    const i = this.crates.indexOf(c);
+    if (i >= 0) this.crates.splice(i, 1);
+  }
+
   closeCrate(c) {
+    if (c.oneshot && c.inv.isEmpty()) { this.removeCrate(c); return; }
     if (c.inv.isEmpty()) {
       c.active = false;
       c.mesh.visible = false;
@@ -606,6 +617,18 @@ export class World {
       });
       count[k] = 0;
     }
+    // пни — появляются на месте срубленных деревьев
+    const treeCount = plan.filter((p) => p.kind === 'pineA' || p.kind === 'pineB' || p.kind === 'birch').length;
+    const stumpGeo = new THREE.CylinderGeometry(0.26, 0.36, 0.55, 10);
+    stumpGeo.translate(0, 0.2, 0);
+    this.stumpIm = new THREE.InstancedMesh(stumpGeo, M.bark, Math.max(1, treeCount));
+    this.stumpIm.castShadow = true;
+    this.stumpIm.receiveShadow = true;
+    this.stumpIm.frustumCulled = false;
+    const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+    for (let i = 0; i < treeCount; i++) this.stumpIm.setMatrixAt(i, zero);
+    this.scene.add(this.stumpIm);
+    let stumpN = 0;
     const barrelColors = [new THREE.Color(0x4a78b8), new THREE.Color(0xc0503a), new THREE.Color(0x6a8a4a)];
     for (const p of plan) {
       const ims = this.inst[p.kind];
@@ -617,6 +640,7 @@ export class World {
         s: 1, sx: 1, sy: 1, sz: 1, alive: true, amount: 0, max: 0, shake: 0, fall: -1,
       };
       if (isTree) {
+        node.stump = stumpN++;
         node.s = 0.8 + r() * 0.45;
         node.y -= 0.1;
         node.r = 0.3 * node.s; node.h = 3.5 * node.s; node.col = 0.3 * node.s;
@@ -676,6 +700,15 @@ export class World {
       im.setMatrixAt(n.idx, _m);
       im.instanceMatrix.needsUpdate = true;
     }
+    if (n.stump !== undefined) {
+      const sc = n.alive ? 0 : n.s;
+      _s.set(sc, sc, sc);
+      _e.set(0, n.rot, 0, 'YXZ');
+      _q.setFromEuler(_e);
+      _m.compose(_p, _q, _s);
+      this.stumpIm.setMatrixAt(n.stump, _m);
+      this.stumpIm.instanceMatrix.needsUpdate = true;
+    }
   }
 
   killNode(n, respawn) {
@@ -709,7 +742,11 @@ export class World {
         this.deadNodes.splice(i, 1);
       }
     }
-    for (const c of this.crates) {
+    for (const c of [...this.crates]) {
+      if (c.oneshot) {
+        if (this.time > c.expire && Math.hypot(c.x - playerPos.x, c.z - playerPos.z) > 30) this.removeCrate(c);
+        continue;
+      }
       if (!c.active && this.time > c.respawnAt && Math.hypot(c.x - playerPos.x, c.z - playerPos.z) > 25) this.fillCrate(c);
     }
     if (this.dish) this.dish.rotation.z += dt * 0.4;

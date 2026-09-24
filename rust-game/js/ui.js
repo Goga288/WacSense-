@@ -25,9 +25,23 @@ export class UI {
       craftCats: $('craftCats'), craftList: $('craftList'), craftInfo: $('craftInfo'), craftQueue: $('craftQueue'),
       itemInfo: $('itemInfo'), cursor: $('cursorItem'), clock: $('clock'),
       map: $('mapScreen'), mapCanvas: $('mapCanvas'), mapMarkers: $('mapMarkers'),
+      compassStrip: $('compassStrip'), compassMarks: $('compassMarks'), dmgDir: $('dmgDir'), lowhp: $('lowhp'),
       hp: document.querySelector('#stats .hp'), food: document.querySelector('#stats .food'),
       water: document.querySelector('#stats .water'),
     };
+
+    // шкала компаса (0..720°, чтобы было бесшовно)
+    this.PXDEG = 3;
+    const names = { 0: 'С', 45: 'СВ', 90: 'В', 135: 'ЮВ', 180: 'Ю', 225: 'ЮЗ', 270: 'З', 315: 'СЗ' };
+    let html = '';
+    for (let d = -180; d <= 540; d += 15) {
+      const n = ((d % 360) + 360) % 360;
+      const x = (d + 180) * this.PXDEG;
+      if (names[n] !== undefined) html += `<span class="lb ${n % 90 === 0 ? 'main' : ''}" style="left:${x}px">${names[n]}</span>`;
+      else html += `<span class="tk" style="left:${x}px"></span>`;
+    }
+    this.el.compassStrip.innerHTML = html;
+    this.el.compassStrip.style.width = 720 * this.PXDEG + 'px';
 
     // HUD-хотбар
     this.hudSlots = [];
@@ -76,7 +90,7 @@ export class UI {
   makeSlot() {
     const s = document.createElement('div');
     s.className = 'slot';
-    s.innerHTML = '<span class="ic"></span><span class="n"></span><span class="bar"></span>';
+    s.innerHTML = '<span class="ic"></span><span class="n"></span><span class="bar"></span><span class="lb"></span>';
     return s;
   }
 
@@ -146,7 +160,8 @@ export class UI {
   }
 
   fillSlot(el, s, selected = false) {
-    const ic = el.children[0], n = el.children[1], bar = el.children[2];
+    const ic = el.children[0], n = el.children[1], bar = el.children[2], lb = el.children[3];
+    if (lb) lb.textContent = s && ITEMS[s.id].short ? ITEMS[s.id].short : '';
     if (s) {
       const it = ITEMS[s.id];
       ic.textContent = it.icon;
@@ -328,6 +343,29 @@ export class UI {
     h.classList.add('on');
   }
 
+  // Направление урона: угол в радианах относительно взгляда (0 — спереди).
+  damageDir(rel) {
+    const d = this.el.dmgDir;
+    d.style.transform = `rotate(${rel}rad)`;
+    d.classList.add('on');
+    clearTimeout(this._dmgT);
+    this._dmgT = setTimeout(() => d.classList.remove('on'), 60);
+  }
+
+  updateCompass(heading, marks) {
+    const W = 420;
+    const x = W / 2 - (heading + 180) * this.PXDEG;
+    this.el.compassStrip.style.transform = `translateX(${x}px)`;
+    let html = '';
+    for (const m of marks) {
+      let rel = m.bearing - heading;
+      rel = ((rel + 540) % 360) - 180;
+      if (Math.abs(rel) > 65) continue;
+      html += `<span class="mk2" style="left:${W / 2 + rel * this.PXDEG}px" title="${m.name}">${m.icon}</span>`;
+    }
+    if (this._marks !== html) { this._marks = html; this.el.compassMarks.innerHTML = html; }
+  }
+
   hurt() {
     const v = this.el.vignette;
     v.classList.remove('on');
@@ -371,6 +409,7 @@ export class UI {
     set(this.el.hp, p.hp, 100);
     set(this.el.food, p.food, 100);
     set(this.el.water, p.water, 100);
+    this.el.lowhp.classList.toggle('on', p.hp < 25 && p.alive);
   }
 
   update(dt) {
@@ -417,6 +456,7 @@ export class UI {
     let html = '';
     for (const m of g.world.monuments) html += `<div class="mk mon" style="${pos(m.x, m.z)}">⚠️<span>${m.name}</span></div>`;
     if (g.spawnBag) html += `<div class="mk" style="${pos(g.spawnBag.x, g.spawnBag.z)}">🛏️</div>`;
+    if (g.events) for (const m of g.events.markers()) html += `<div class="mk mon" style="${pos(m.x, m.z)}">${m.icon}<span>${m.name}</span></div>`;
     const deg = (-g.player.yaw * 180) / Math.PI;
     html += `<div class="mk me" style="${pos(g.player.pos.x, g.player.pos.z)};transform:translate(-50%,-50%) rotate(${deg}deg)">▲</div>`;
     if (this._mk !== html) { this._mk = html; this.el.mapMarkers.innerHTML = html; }

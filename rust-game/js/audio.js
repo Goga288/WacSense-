@@ -134,6 +134,20 @@ export function sfx(name, vol = 1) {
     case 'step':
       noise(0.06, 300, 'lowpass', 0.15 * vol);
       break;
+    case 'rifle':
+      noise(0.28, 2600, 'lowpass', 1.1 * vol);
+      noise(0.08, 5000, 'highpass', 0.5 * vol);
+      tone(150, 0.12, 'sawtooth', 0.35 * vol, 50);
+      break;
+    case 'thunder':
+      noise(3.2, 160, 'lowpass', 1.6 * vol);
+      noise(1.2, 600, 'lowpass', 0.8 * vol);
+      tone(45, 2.5, 'sine', 0.6 * vol, 28);
+      break;
+    case 'heart':
+      tone(60, 0.12, 'sine', 0.6 * vol, 40);
+      setTimeout(() => ctx && tone(55, 0.12, 'sine', 0.45 * vol, 38), 180);
+      break;
     case 'crack':
       noise(0.5, 1800, 'highpass', 0.6 * vol);
       tone(180, 0.6, 'sawtooth', 0.15 * vol, 60);
@@ -210,7 +224,27 @@ function cricket() {
 // p: { day 0..1, shore 0..1, height }
 export function updateAmbient(dt, p) {
   if (!ctx || muted || ctx.state !== 'running') return;
-  if (!amb) amb = { wind: loopNoise('bandpass', 450, 0.5), sea: loopNoise('lowpass', 420, 0.6), t: 0, bird: 2, cr: 0 };
+  if (!amb) {
+    amb = {
+      wind: loopNoise('bandpass', 450, 0.5), sea: loopNoise('lowpass', 420, 0.6), rain: loopNoise('highpass', 1400, 0.4),
+      rainLow: loopNoise('lowpass', 700, 0.5), t: 0, bird: 2, cr: 0,
+    };
+    // гул двигателей самолёта
+    const o1 = ctx.createOscillator(), o2 = ctx.createOscillator();
+    o1.type = 'sawtooth'; o2.type = 'sawtooth';
+    o1.frequency.value = 62; o2.frequency.value = 65.5;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 380;
+    const eg = ctx.createGain();
+    eg.gain.value = 0;
+    o1.connect(lp); o2.connect(lp); lp.connect(eg).connect(master);
+    o1.start(); o2.start();
+    amb.engine = eg;
+  }
+  const rain = p.rain || 0;
+  amb.rain.g.gain.setTargetAtTime(rain * 0.16, ctx.currentTime, 0.5);
+  amb.rainLow.g.gain.setTargetAtTime(rain * 0.12, ctx.currentTime, 0.5);
+  amb.engine.gain.setTargetAtTime(p.engine || 0, ctx.currentTime, 0.3);
   amb.t += dt;
   const now = ctx.currentTime;
   const hk = Math.min(1, Math.max(0, p.height / 35));
@@ -222,7 +256,7 @@ export function updateAmbient(dt, p) {
   amb.bird -= dt;
   if (amb.bird <= 0) {
     amb.bird = 1.2 + Math.random() * 4.5;
-    if (p.day > 0.5 && p.shore < 0.6) chirp();
+    if (p.day > 0.5 && p.shore < 0.6 && rain < 0.2) chirp();
   }
   amb.cr -= dt;
   if (amb.cr <= 0) {

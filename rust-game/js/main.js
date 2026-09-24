@@ -10,6 +10,8 @@ import { Y } from './ysdk.js';
 import { clamp, lerp, smoothstep, rand, randi } from './util.js';
 import { buildViewModel } from './viewmodel.js';
 import { Gfx, QUALITY, QUALITY_ORDER, wind } from './gfx.js';
+import { Weather } from './weather.js';
+import { Events } from './events.js';
 
 const SAVE_KEY = 'rusty_island_save_v1';
 const DAY_LENGTH = 16 * 60; // секунд на полные сутки
@@ -53,6 +55,8 @@ class Game {
     this.scene.add(this.sun, this.sun.target);
     this.fireLight = new THREE.PointLight(0xff8a30, 0, 18, 1.6);
     this.scene.add(this.fireLight);
+    this.torchLight = new THREE.PointLight(0xffa04a, 0, 24, 1.6);
+    this.scene.add(this.torchLight);
     this.waterFog = new THREE.Color(0x0d3a4a);
     this.hurtFx = 0;
 
@@ -114,6 +118,8 @@ class Game {
     this.building = new Building(this);
     this.ents = new Entities(this);
     this.ui = new UI(this);
+    this.weather = new Weather(this);
+    this.events = new Events(this);
     this.bindInput();
     this.bindMenus();
     Y.onPause = () => { if (this.state === 'play') this.pause(); setMuted(true); };
@@ -158,6 +164,7 @@ class Game {
   giveStarter(kit) {
     this.inv.slots.fill(null);
     this.inv.add('rock', 1);
+    this.inv.add('torch', 1);
     this.inv.add('bandage', 1);
     if (kit) {
       this.inv.add('stone_hatchet', 1);
@@ -618,9 +625,13 @@ class Game {
   }
 
   // ---------- Урон игроку ----------
-  damagePlayer(dmg, src) {
+  damagePlayer(dmg, src, from) {
     const p = this.player;
     if (!p.alive || this.state === 'menu') return;
+    if (from) {
+      const bearing = Math.atan2(from.x - p.pos.x, -(from.z - p.pos.z));
+      this.ui.damageDir(bearing + p.yaw);
+    }
     p.hp -= dmg;
     if (dmg > 1) this.shake = Math.max(this.shake, Math.min(1, dmg / 12));
     this.hurtFx = Math.min(1, this.hurtFx + dmg / 25);
@@ -640,7 +651,7 @@ class Game {
     if (!it || it.melee) {
       if (this.lmb) this.swing(it ? it.melee : FIST);
     } else if (it.gun) {
-      if (edge) this.fireGun(s, it.gun);
+      if (it.gun.auto ? this.lmb : edge) this.fireGun(s, it.gun);
     } else if (it.ranged) {
       if (edge) this.fireBow(it.ranged);
     } else if (it.eat || it.heal) {
@@ -777,15 +788,19 @@ class Game {
     s.ammo--;
     this.cool = g.rate;
     this.recoilT = 0;
-    this.sfx('shot');
-    this.shake = Math.max(this.shake, 0.6);
-    this.muzzleT = 0.06;
+    this.sfx(g.auto ? 'rifle' : 'shot');
+    this.shake = Math.max(this.shake, g.auto ? 0.3 : 0.6);
+    this.muzzleT = 0.05;
     const [o, d] = this.eyeRay();
-    d.x += rand(-g.spread, g.spread);
-    d.y += rand(-g.spread, g.spread);
-    d.z += rand(-g.spread, g.spread);
+    const moving = this.player.moveSpeed > 1 ? 1.8 : 1;
+    const sp = g.spread * (this.aim ? 0.35 : 1) * moving * (this.player.onGround ? 1 : 2.5);
+    d.x += rand(-sp, sp);
+    d.y += rand(-sp, sp);
+    d.z += rand(-sp, sp);
     d.normalize();
-    this.player.pitch = Math.min(1.55, this.player.pitch + 0.025);
+    const rec = (g.recoil || 0.025) * (this.aim ? 0.6 : 1);
+    this.player.pitch = Math.min(1.55, this.player.pitch + rec);
+    this.player.yaw += rand(-rec, rec) * 0.5;
     const hit = this.raycast(o, d, g.range);
     const end = hit ? hit.point : o.clone().addScaledVector(d, g.range);
     const from = o.clone().addScaledVector(d, 0.8);
@@ -1157,6 +1172,7 @@ class Game {
     const aim = this.aim && it && (it.gun || it.ranged);
     let x = aim ? 0.02 : 0.3, y = aim ? -0.2 : -0.33, z = -0.62;
     if (it && it.model === 'spear') { x = 0.25; y = -0.27; z = -0.35; }
+    if (it && it.model === 'rifle') { x = aim ? 0 : 0.2; y = aim ? -0.155 : -0.25; z = aim ? -0.32 : -0.42; }
     vm.scale.setScalar(0.8);
     const bobAmt = this.player.onGround ? Math.min(1, this.player.moveSpeed / 5) : 0;
     x += Math.cos(this.bob) * 0.012 * bobAmt;
@@ -1200,6 +1216,14 @@ class Game {
     rz += this.sway.x * 2.5;
     ry += this.sway.x * 1.5;
     pv.rotation.set(rx, ry, rz);
+    if (vm.userData.flames) {
+      const tt = performance.now() / 1000;
+      for (const f of vm.userData.flames) {
+        const k = (tt * 1.8 + f.userData.ph) % 1;
+        f.position.y = 0.53 + k * 0.1;
+        f.scale.setScalar((1 - k) * 0.13 + 0.05);
+      }
+    }
     if (vm.userData.flash) {
       this.muzzleT = (this.muzzleT || 0) - dt;
       vm.userData.flash.visible = this.muzzleT > 0;
@@ -1209,8 +1233,10 @@ class Game {
 
   // ---------- Небо и свет ----------
   updateSky(dt = 0) {
-    const L = this.gfx.updateSky(this.dayTime, this.camera, dt);
+    const W = this.weather;
+    const L = this.gfx.updateSky(this.dayTime, this.camera, dt, W ? W.cloud : 0);
     const { elev, sd, day, set } = L;
+    const cloud = W ? W.cloud : 0, rain = W ? W.rain : 0, flash = W ? W.flash : 0;
     const cam = this.camera.position;
     const under = cam.y < -0.05;
     this.underwater = under;
@@ -1222,8 +1248,8 @@ class Game {
       this.scene.background = this.scene.fog.color;
     } else {
       this.scene.fog.color.copy(L.fog);
-      this.scene.fog.near = 90;
-      this.scene.fog.far = 650;
+      this.scene.fog.near = lerp(90, 25, rain);
+      this.scene.fog.far = lerp(650, 200, rain);
       this.scene.background = null;
     }
     const p = this.player.pos;
@@ -1232,13 +1258,19 @@ class Game {
     this.sun.target.position.set(p.x, p.y, p.z);
     if (elev > -0.05) {
       this.sun.color.setHex(0xfff4e2).lerp(new THREE.Color(0xff9a50), set * 0.8);
-      this.sun.intensity = 0.2 + 2.6 * day;
+      this.sun.intensity = (0.2 + 2.6 * day) * (1 - cloud * 0.72);
     } else {
       this.sun.color.setHex(0x8fa4d8);
       this.sun.intensity = 0.5;
     }
     const env = this.gfx.q.env;
-    this.hemi.intensity = env ? 0.2 + 0.4 * day : 0.5 + 1.1 * day;
+    this.hemi.intensity = (env ? 0.2 + 0.4 * day : 0.5 + 1.1 * day) + flash * 4;
+    this.sun.shadow.intensity = 1 - cloud * 0.7;
+    if (this.scene.environment) this.scene.environmentIntensity += flash * 2;
+    // мокрая земля после дождя
+    const wet = W ? W.wet : 0;
+    this.gfx.M.terrain.roughness = lerp(0.97, 0.5, wet);
+    this.gfx.M.terrain.color.setScalar(1 - wet * 0.22);
     this.hemi.color.setHex(0xc8d8e8).lerp(new THREE.Color(0x4a5a90), 1 - day);
     this.vmHemi.intensity = 0.35 + 1.25 * day;
     this.vmDir.intensity = 0.2 + 1.0 * day;
@@ -1263,9 +1295,12 @@ class Game {
     if (this.state === 'play' || this.state === 'dead') this.update(dt);
     else if (this.state === 'menu') {
       // медленный облёт в меню
-      this.player.yaw += dt * 0.05;
       wind.value += dt;
-      this.updateCamera();
+      this.menuT = (this.menuT || 0) + dt;
+      const a = this.menuT * 0.035;
+      this.camera.position.set(Math.cos(a) * 170, 75, Math.sin(a) * 170);
+      this.camera.lookAt(0, 8, 0);
+      this.weather.update(dt, this.camera.position);
       this.updateSky(dt);
       if (this.world.grass) this.world.grass.update(this.player.pos);
     }
@@ -1283,6 +1318,34 @@ class Game {
     wind.value += dt;
     this.hurtFx = Math.max(0, this.hurtFx - dt * 2.5);
     this.shake = Math.max(0, this.shake - dt * 3);
+    this.weather.update(dt, this.camera.position);
+    this.events.update(dt);
+    // компас
+    const heading = ((-p.yaw * 180 / Math.PI) % 360 + 360) % 360;
+    const marks = [];
+    for (const m of this.world.monuments) marks.push({ x: m.x, z: m.z, icon: '⚠️', name: m.name });
+    for (const m of this.events.markers()) marks.push(m);
+    if (this.spawnBag) marks.push({ x: this.spawnBag.x, z: this.spawnBag.z, icon: '🛏️', name: 'Спальник' });
+    for (const m of marks) m.bearing = ((Math.atan2(m.x - p.pos.x, -(m.z - p.pos.z)) * 180 / Math.PI) + 360) % 360;
+    this.ui.updateCompass(heading, marks);
+    // сердцебиение при низком здоровье
+    if (p.alive && p.hp < 25) {
+      this.heartT = (this.heartT || 0) - dt;
+      if (this.heartT <= 0) { this.heartT = 0.9; this.sfx('heart', null, 0.8); }
+    }
+    // факел в руке
+    const hs = p.alive ? this.held() : null;
+    if (hs && hs.id === 'torch' && !this.ui.open) {
+      const c = this.camera;
+      const fwd = new THREE.Vector3(0, 0, -1).applyEuler(c.rotation);
+      const right = new THREE.Vector3(1, 0, 0).applyEuler(c.rotation);
+      this.torchLight.position.copy(c.position).addScaledVector(fwd, 0.6).addScaledVector(right, 0.35);
+      this.torchLight.position.y += 0.1;
+      const tt = performance.now();
+      this.torchLight.intensity = 16 + Math.sin(tt * 0.021) * 2.5 + Math.sin(tt * 0.053) * 1.5;
+    } else {
+      this.torchLight.intensity = 0;
+    }
     this.ambT = (this.ambT || 0) - dt;
     if (this.ambT <= 0) {
       this.ambT = 0.5;
@@ -1293,6 +1356,10 @@ class Game {
       }
       const day = smoothstep(-0.1, 0.2, Math.sin((this.dayTime - 0.25) * Math.PI * 2));
       this.ambParams = { day, shore: p.inWater ? 1 : wet / 8, height: p.pos.y };
+    }
+    if (this.ambParams) {
+      this.ambParams.rain = this.weather.rain;
+      this.ambParams.engine = this.events.engineVol;
     }
     if (this.ambParams && this.soundOn) updateAmbient(dt, this.ambParams);
 
@@ -1408,6 +1475,7 @@ class Game {
       b: this.building.serialize(),
       bags: this.ents.serializeBags(),
       bag: this.spawnBag ? { x: this.spawnBag.x, z: this.spawnBag.z } : null,
+      weather: this.weather ? this.weather.serialize() : null,
     };
   }
 
@@ -1430,6 +1498,7 @@ class Game {
       const s = typeof json === 'string' ? JSON.parse(json) : json;
       if (!s || s.v !== 1) return false;
       this.dayTime = s.day || 0.3;
+      if (s.weather && this.weather) this.weather.load(s.weather);
       this.building.load(s.b);
       this.ents.loadBags(s.bags);
       this.inv.load(s.inv);

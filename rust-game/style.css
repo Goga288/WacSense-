@@ -33,8 +33,37 @@ button:disabled { opacity: 0.45; cursor: default; }
 #vignette.on { animation: vg 0.5s ease-out; }
 @keyframes vg { from { opacity: 1; } to { opacity: 0; } }
 #clock {
-  position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.35); padding: 3px 10px; border-radius: 10px; font-size: 13px;
+  position: absolute; top: 12px; right: 14px;
+  background: rgba(0, 0, 0, 0.4); padding: 3px 10px; border-radius: 4px; font-size: 13px;
+}
+#compass {
+  position: absolute; top: 8px; left: 50%; width: 420px; height: 34px; margin-left: -210px; overflow: hidden;
+  background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.45) 20%, rgba(0, 0, 0, 0.45) 80%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 15%, #000 85%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 15%, #000 85%, transparent);
+}
+#compassStrip, #compassMarks { position: absolute; left: 0; top: 0; height: 100%; width: 100%; }
+#compass .tk { position: absolute; top: 20px; width: 1px; height: 7px; background: rgba(255, 255, 255, 0.5); }
+#compass .lb { position: absolute; top: 3px; transform: translateX(-50%); font-size: 13px; font-weight: bold; color: #eee; }
+#compass .lb.main { color: #ffb366; font-size: 15px; }
+#compass .mk2 { position: absolute; top: 14px; transform: translateX(-50%); font-size: 13px; }
+#compass .needle { position: absolute; left: 50%; bottom: 0; width: 0; height: 0; margin-left: -5px;
+  border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 6px solid #ffb366; }
+#dmgDir {
+  position: absolute; left: 50%; top: 50%; width: 260px; height: 260px; margin: -130px 0 0 -130px; border-radius: 50%;
+  border-top: 8px solid rgba(220, 30, 20, 0.85); opacity: 0; transition: opacity 0.6s;
+  -webkit-mask-image: radial-gradient(circle, #000 60%, transparent 72%);
+}
+#dmgDir.on { opacity: 1; transition: none; }
+#lowhp {
+  position: absolute; inset: 0; opacity: 0; pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 50%, rgba(140, 0, 0, 0.55) 100%);
+}
+#lowhp.on { animation: beat 0.9s infinite; }
+@keyframes beat { 0%, 100% { opacity: 0.25; } 15% { opacity: 0.9; } 35% { opacity: 0.35; } 50% { opacity: 0.75; } }
+.slot .lb {
+  position: absolute; right: 3px; top: 1px; font-size: 9px; font-weight: bold; color: #ffcf8a;
+  text-shadow: 0 0 2px #000; pointer-events: none;
 }
 #toast {
   position: absolute; top: 18%; left: 50%; transform: translateX(-50%); padding: 8px 16px;
@@ -161,6 +190,9 @@ button:disabled { opacity: 0.45; cursor: default; }
   text-align: center; padding: 20px;
 }
 #loading { background: #111; }
+#menu, #loading + #menu {
+  background: radial-gradient(ellipse at center, rgba(10, 12, 10, 0.15) 30%, rgba(5, 6, 5, 0.75) 100%);
+}
 .logo {
   font-size: clamp(34px, 7vw, 72px); font-weight: 900; letter-spacing: 4px; color: #d06a2c;
   text-shadow: 0 4px 0 #5a2a10, 0 0 30px rgba(208, 106, 44, 0.4);

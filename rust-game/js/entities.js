@@ -201,7 +201,11 @@ export class Entities {
     if (m.dead) return;
     m.hp -= dmg;
     this.blood(m.pos.x, m.pos.y + m.h * 0.6, m.pos.z);
-    if (m.hp <= 0) { this.kill(m); return; }
+    if (m.hp <= 0) {
+      this.kill(m);
+      if (fromPlayer && m.animal) this.game.ui.notify(`☠ Убит: ${m.def.name}`);
+      return;
+    }
     if (m.animal) {
       const d = m.def;
       if (d.dmg > 0 && (d.retaliate || d.aggro)) { m.state = 'chase'; m.timer = 15; }
@@ -300,7 +304,7 @@ export class Entities {
             if (dist > reach) moveSpeed = d.run;
             else if (m.atk <= 0 && dy < 1.6) {
               m.atk = 1.1;
-              game.damagePlayer(d.dmg, m.name);
+              game.damagePlayer(d.dmg, m.name, m.pos);
               m.timer = 12;
             }
             if (m.hp < m.maxHp * 0.25 && m.type !== 'bear') { m.state = 'flee'; m.timer = 8; }
@@ -397,7 +401,7 @@ export class Entities {
     const from = new THREE.Vector3(m.pos.x + Math.sin(m.yaw) * 1.3, m.pos.y + 1.5, m.pos.z + Math.cos(m.yaw) * 1.3);
     const to = new THREE.Vector3(pl.pos.x, pl.pos.y + 1.2, pl.pos.z);
     if (Math.random() < p) {
-      game.damagePlayer(randi(5, 8), 'Учёный');
+      game.damagePlayer(randi(5, 8), 'Учёный', m.pos);
     } else {
       to.x += rand(-1.5, 1.5); to.y += rand(-0.5, 1.5); to.z += rand(-1.5, 1.5);
     }

@@ -329,7 +329,7 @@ export class Gfx {
   }
 
   // t: 0..1 (0 — полночь, 0.5 — полдень). Возвращает параметры освещения.
-  updateSky(t, camera, dt) {
+  updateSky(t, camera, dt, cloud = 0) {
     const ang = (t - 0.25) * Math.PI * 2;
     const elev = Math.sin(ang);
     const sd = new THREE.Vector3(Math.cos(ang), elev, 0.35).normalize();
@@ -337,8 +337,8 @@ export class Gfx {
     const set = (1 - smoothstep(0.0, 0.35, Math.abs(elev))) * smoothstep(-0.25, 0.05, elev);
     const u = this.sky.material.uniforms;
     u.sunPosition.value.copy(sd);
-    u.turbidity.value = lerp(2.5, 6, set);
-    u.rayleigh.value = lerp(1.1, 2.4, set);
+    u.turbidity.value = lerp(lerp(2.5, 6, set), 16, cloud);
+    u.rayleigh.value = lerp(lerp(1.1, 2.4, set), 0.6, cloud);
     this.sky.position.copy(camera.position);
     this.stars.position.copy(camera.position);
     this.stars.material.opacity = 1 - smoothstep(-0.2, 0.05, elev);
@@ -347,20 +347,25 @@ export class Gfx {
     this.moon.visible = elev < 0.15;
     this.glare.position.copy(camera.position).addScaledVector(sd, 600);
     this.glare.visible = elev > -0.08;
-    this.glare.material.opacity = smoothstep(-0.08, 0.12, elev) * 0.9;
+    this.glare.material.opacity = smoothstep(-0.08, 0.12, elev) * 0.9 * (1 - cloud);
     this.glare.material.color.setRGB(1, 1, 1).lerp(this.fogSet, set * 0.6);
     for (const c of this.clouds.children) {
       c.position.x += dt * 3;
       if (c.position.x > 900) c.position.x = -900;
     }
     this.clouds.position.set(camera.position.x * 0.9, 0, camera.position.z * 0.9);
-    const cc = this.tmpC.setRGB(1, 1, 1).lerp(this.fogSet, set * 0.8).multiplyScalar(0.12 + day * 0.9);
+    const cc = this.tmpC.setRGB(1, 1, 1).lerp(this.fogSet, set * 0.8).multiplyScalar((0.12 + day * 0.9) * (1 - cloud * 0.55));
     this.cloudMat.color.copy(cc);
+    this.cloudMat.opacity = 0.85 + cloud * 0.15;
+    const cs = 1 + cloud * 1.3;
+    this.clouds.scale.set(cs, 1, cs);
 
     const fog = new THREE.Color().copy(this.fogNight).lerp(this.fogDay, day).lerp(this.fogSet, set * 0.6);
+    fog.lerp(new THREE.Color(0x7d868f).multiplyScalar(0.15 + day * 0.85), cloud * 0.75);
     // карта окружения обновляется, когда солнце заметно сдвинулось
-    if (this.q.env && Math.abs(elev - this.envElev) > 0.035) {
+    if (this.q.env && (Math.abs(elev - this.envElev) > 0.035 || Math.abs(cloud - (this.envCloud || 0)) > 0.1)) {
       this.envElev = elev;
+      this.envCloud = cloud;
       const eu = this.envSky.material.uniforms;
       for (const k of ['turbidity', 'rayleigh', 'mieCoefficient', 'mieDirectionalG']) eu[k].value = u[k].value;
       eu.sunPosition.value.copy(sd);
