@@ -1,0 +1,539 @@
+// Живность, учёные-NPC, трупы, сумки с лутом, стрелы, трассеры и частицы.
+import * as THREE from './three.module.min.js';
+import { Inventory, rollLoot } from './items.js';
+import { rand, randi, clamp, angleDiff, rayCylY, raySphere } from './util.js';
+import { colorMat } from './world.js';
+
+export const ANIMALS = {
+  deer: { name: 'Олень', hp: 80, walk: 1.8, run: 8, aggro: 0, flee: 22, dmg: 0, meat: 30, r: 0.6, h: 1.6,
+    body: [0.45, 0.55, 1.2], by: 1.0, legH: 0.8, legW: 0.1, head: 0.3, headY: 1.55, headZ: 0.75, color: 0x9a6a3a },
+  boar: { name: 'Кабан', hp: 120, walk: 1.5, run: 6, aggro: 0, retaliate: true, dmg: 10, meat: 40, r: 0.6, h: 1.0,
+    body: [0.6, 0.6, 1.1], by: 0.6, legH: 0.32, legW: 0.14, head: 0.4, headY: 0.55, headZ: 0.7, color: 0x4a3526 },
+  wolf: { name: 'Волк', hp: 100, walk: 2.0, run: 7.3, aggro: 20, dmg: 12, meat: 30, r: 0.55, h: 1.0,
+    body: [0.4, 0.45, 1.1], by: 0.75, legH: 0.55, legW: 0.1, head: 0.32, headY: 0.95, headZ: 0.7, color: 0x77746f },
+  bear: { name: 'Медведь', hp: 300, walk: 1.6, run: 6.4, aggro: 14, dmg: 25, meat: 80, r: 0.9, h: 1.8,
+    body: [0.95, 0.95, 1.7], by: 1.05, legH: 0.6, legW: 0.3, head: 0.55, headY: 1.35, headZ: 1.05, color: 0x3d2a1c },
+};
+const ANIMAL_COUNTS = { deer: 14, boar: 12, wolf: 8, bear: 4 };
+
+function box(w, h, d, color, x = 0, y = 0, z = 0) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), colorMat(color));
+  m.position.set(x, y, z);
+  m.castShadow = true;
+  return m;
+}
+
+function buildAnimal(type) {
+  const d = ANIMALS[type];
+  const root = new THREE.Group();
+  const body = new THREE.Group();
+  root.add(body);
+  const [bw, bh, bl] = d.body;
+  body.add(box(bw, bh, bl, d.color, 0, d.by, 0));
+  const dark = new THREE.Color(d.color).multiplyScalar(0.7).getHex();
+  // голова
+  if (type === 'deer') {
+    body.add(box(0.2, 0.55, 0.22, d.color, 0, d.by + 0.4, bl / 2 - 0.05));
+    body.add(box(d.head * 0.8, d.head * 0.8, d.head * 1.3, d.color, 0, d.headY, d.headZ));
+    body.add(box(0.05, 0.4, 0.05, 0xd8c8a8, -0.1, d.headY + 0.35, d.headZ - 0.1));
+    body.add(box(0.05, 0.4, 0.05, 0xd8c8a8, 0.1, d.headY + 0.35, d.headZ - 0.1));
+    body.add(box(0.25, 0.05, 0.05, 0xd8c8a8, 0, d.headY + 0.5, d.headZ - 0.1));
+  } else {
+    body.add(box(d.head, d.head, d.head * 1.1, d.color, 0, d.headY, d.headZ));
+    body.add(box(d.head * 0.55, d.head * 0.45, d.head * 0.6, dark, 0, d.headY - 0.05, d.headZ + d.head * 0.7));
+    if (type === 'boar') {
+      body.add(box(0.04, 0.15, 0.04, 0xeeeeee, -0.15, d.headY - 0.05, d.headZ + 0.4));
+      body.add(box(0.04, 0.15, 0.04, 0xeeeeee, 0.15, d.headY - 0.05, d.headZ + 0.4));
+    }
+    if (type === 'wolf') {
+      body.add(box(0.08, 0.15, 0.06, dark, -0.1, d.headY + 0.2, d.headZ - 0.05));
+      body.add(box(0.08, 0.15, 0.06, dark, 0.1, d.headY + 0.2, d.headZ - 0.05));
+      const tail = box(0.1, 0.1, 0.5, d.color, 0, d.by + 0.1, -bl / 2 - 0.2);
+      tail.rotation.x = 0.5;
+      body.add(tail);
+    }
+  }
+  // глаза
+  body.add(box(0.05, 0.05, 0.02, 0x111111, -d.head * 0.3, d.headY + 0.05, d.headZ + d.head * 0.56));
+  body.add(box(0.05, 0.05, 0.02, 0x111111, d.head * 0.3, d.headY + 0.05, d.headZ + d.head * 0.56));
+  const legs = [];
+  for (const [sx, sz] of [[-1, 1], [1, 1], [-1, -1], [1, -1]]) {
+    const pivot = new THREE.Group();
+    pivot.position.set(sx * (bw / 2 - d.legW / 2), d.by - bh / 2 + 0.05, sz * (bl / 2 - d.legW));
+    const leg = box(d.legW, d.legH + 0.1, d.legW, dark, 0, -(d.legH + 0.1) / 2, 0);
+    pivot.add(leg);
+    body.add(pivot);
+    legs.push(pivot);
+  }
+  return { root, body, legs };
+}
+
+function buildHuman() {
+  const root = new THREE.Group();
+  const body = new THREE.Group();
+  root.add(body);
+  const suit = 0x3a6f95, dark = 0x2a3a48;
+  const legs = [];
+  for (const sx of [-1, 1]) {
+    const p = new THREE.Group();
+    p.position.set(sx * 0.13, 0.9, 0);
+    p.add(box(0.2, 0.9, 0.22, dark, 0, -0.45, 0));
+    body.add(p);
+    legs.push(p);
+  }
+  body.add(box(0.52, 0.7, 0.3, suit, 0, 1.25, 0));
+  body.add(box(0.34, 0.34, 0.34, 0xcfc6b0, 0, 1.8, 0));
+  body.add(box(0.28, 0.16, 0.05, 0x223344, 0, 1.83, 0.17));
+  const arms = new THREE.Group();
+  arms.position.set(0, 1.5, 0);
+  arms.add(box(0.14, 0.14, 0.55, suit, -0.3, -0.05, 0.22));
+  arms.add(box(0.14, 0.14, 0.55, suit, 0.3, -0.05, 0.22));
+  arms.add(box(0.08, 0.12, 0.7, 0x222222, 0.05, 0.0, 0.55));
+  body.add(arms);
+  const flash = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 4), new THREE.MeshBasicMaterial({ color: 0xffdd66 }));
+  flash.position.set(0.05, 1.5, 1.35);
+  flash.visible = false;
+  body.add(flash);
+  return { root, body, legs, flash };
+}
+
+const bagGeo = new THREE.BoxGeometry(0.6, 0.4, 0.4);
+const bagMat = new THREE.MeshLambertMaterial({ color: 0x5a4a2a });
+const arrowGeo = new THREE.CylinderGeometry(0.015, 0.015, 0.8, 4).rotateX(Math.PI / 2);
+const arrowMat = new THREE.MeshLambertMaterial({ color: 0x8a6a3a });
+
+export class Entities {
+  constructor(game) {
+    this.game = game;
+    this.world = game.world;
+    this.scene = game.scene;
+    this.mobs = [];
+    this.bags = [];
+    this.arrows = [];
+    this.tracers = [];
+    this.initParticles();
+    for (const type in ANIMAL_COUNTS) {
+      for (let i = 0; i < ANIMAL_COUNTS[type]; i++) this.spawnAnimal(type);
+    }
+    for (const s of this.world.npcSpawns) this.spawnNpc(s);
+  }
+
+  // ---------- Спавн ----------
+  spawnAnimal(type, near) {
+    const d = ANIMALS[type];
+    let p = null;
+    for (let i = 0; i < 30 && !p; i++) {
+      const q = this.world.randomLandPoint(type === 'bear' ? 8 : 3, 26, 15, 0.7);
+      if (!q) continue;
+      if (near && Math.hypot(q.x - near.x, q.z - near.z) < 60) continue;
+      p = q;
+    }
+    if (!p) return;
+    const model = buildAnimal(type);
+    const m = {
+      kind: 'mob', animal: true, type, def: d, name: d.name, hp: d.hp, maxHp: d.hp,
+      pos: new THREE.Vector3(p.x, this.world.getHeight(p.x, p.z), p.z), yaw: rand(0, Math.PI * 2),
+      state: 'wander', timer: 0, target: null, atk: 0, phase: 0, speed: 0, dead: false,
+      r: d.r, h: d.h, ...model,
+    };
+    this.scene.add(m.root);
+    this.mobs.push(m);
+    return m;
+  }
+
+  spawnNpc(spawn) {
+    const model = buildHuman();
+    const m = {
+      kind: 'mob', npc: true, type: 'scientist', name: 'Учёный', hp: 150, maxHp: 150, spawn,
+      pos: new THREE.Vector3(spawn.x, this.world.getHeight(spawn.x, spawn.z), spawn.z), yaw: rand(0, 6.28),
+      state: 'patrol', timer: 0, target: null, atk: 1, phase: 0, speed: 0, dead: false, lostT: 0, burst: 0,
+      r: 0.4, h: 1.9, ...model,
+    };
+    this.scene.add(m.root);
+    this.mobs.push(m);
+    return m;
+  }
+
+  // ---------- Урон ----------
+  damage(m, dmg, fromPlayer = true) {
+    if (m.dead) return;
+    m.hp -= dmg;
+    this.blood(m.pos.x, m.pos.y + m.h * 0.6, m.pos.z);
+    if (m.hp <= 0) { this.kill(m); return; }
+    if (m.animal) {
+      const d = m.def;
+      if (d.dmg > 0 && (d.retaliate || d.aggro)) { m.state = 'chase'; m.timer = 15; }
+      else { m.state = 'flee'; m.timer = 8; }
+      if (m.type === 'boar' || m.type === 'bear') this.game.sfx('growl', m.pos);
+    } else if (fromPlayer) {
+      m.state = 'combat';
+      m.lostT = 0;
+    }
+  }
+
+  kill(m) {
+    m.dead = true;
+    m.hp = 0;
+    m.deadT = 0;
+    // кладём тело на бок и центрируем
+    m.body.rotation.z = Math.PI / 2;
+    if (m.flash) m.flash.visible = false;
+    if (m.animal) {
+      m.body.position.set(m.def.by, m.def.body[0] / 2, 0);
+      m.amount = m.def.meat;
+      m.name = `Туша (${m.def.name})`;
+    } else {
+      m.body.position.set(0.9, 0.26, 0);
+      this.game.dropBag(m.pos.x, m.pos.y, m.pos.z, rollLoot('scientist'));
+      this.game.ui.notify('Учёный убит');
+    }
+  }
+
+  // Разделка туши.
+  harvest(m, mult) {
+    const n = Math.max(1, Math.round(3 * mult));
+    const got = Math.min(n, m.amount);
+    m.amount -= got;
+    const meat = Math.max(1, Math.round(got / 2));
+    this.game.giveItem('raw_meat', meat);
+    if (Math.random() < 0.6) this.game.giveItem('cloth', randi(1, 3));
+    this.blood(m.pos.x, m.pos.y + 0.3, m.pos.z);
+    if (m.amount <= 0) this.removeMob(m, true);
+  }
+
+  removeMob(m, respawn) {
+    this.scene.remove(m.root);
+    const i = this.mobs.indexOf(m);
+    if (i >= 0) this.mobs.splice(i, 1);
+    if (!respawn) return;
+    const game = this.game;
+    const delay = m.npc ? 150 : 40;
+    setTimeoutGame(game, delay, () => {
+      if (m.npc) this.spawnNpc(m.spawn);
+      else this.spawnAnimal(m.type, game.player.pos);
+    });
+  }
+
+  // ---------- ИИ ----------
+  update(dt) {
+    const game = this.game;
+    const pl = game.player;
+    const w = this.world;
+    for (const m of [...this.mobs]) {
+      const dx = pl.pos.x - m.pos.x, dz = pl.pos.z - m.pos.z;
+      const dist = Math.hypot(dx, dz);
+      if (m.dead) {
+        m.deadT += dt;
+        if (m.deadT > (m.animal ? 120 : 30)) this.removeMob(m, true);
+        continue;
+      }
+      if (dist > 160) continue;
+      m.timer -= dt;
+      m.atk -= dt;
+      let moveSpeed = 0;
+      let targetYaw = m.yaw;
+      const alive = pl.alive;
+      if (m.animal) {
+        const d = m.def;
+        if (alive && d.aggro && dist < d.aggro && m.state === 'wander') { m.state = 'chase'; m.timer = 12; game.sfx('growl', m.pos); }
+        if (alive && d.flee && dist < d.flee && m.state === 'wander') { m.state = 'flee'; m.timer = 6; }
+        if (m.state === 'wander') {
+          if (!m.target || m.timer <= 0) {
+            m.target = { x: m.pos.x + rand(-20, 20), z: m.pos.z + rand(-20, 20) };
+            m.timer = rand(4, 10);
+            m.idle = Math.random() < 0.35;
+          }
+          const tx = m.target.x - m.pos.x, tz = m.target.z - m.pos.z;
+          if (!m.idle && Math.hypot(tx, tz) > 1) { targetYaw = Math.atan2(tx, tz); moveSpeed = d.walk; }
+        } else if (m.state === 'flee') {
+          targetYaw = Math.atan2(-dx, -dz);
+          moveSpeed = d.run;
+          if (m.timer <= 0) m.state = 'wander';
+        } else if (m.state === 'chase') {
+          if (!alive || dist > 45 || m.timer <= 0) { m.state = 'wander'; m.target = null; }
+          else {
+            targetYaw = Math.atan2(dx, dz);
+            const reach = m.r + 1.1;
+            const dy = Math.abs(pl.pos.y - m.pos.y);
+            if (dist > reach) moveSpeed = d.run;
+            else if (m.atk <= 0 && dy < 1.6) {
+              m.atk = 1.1;
+              game.damagePlayer(d.dmg, m.name);
+              m.timer = 12;
+            }
+            if (m.hp < m.maxHp * 0.25 && m.type !== 'bear') { m.state = 'flee'; m.timer = 8; }
+          }
+        }
+      } else {
+        // учёный
+        const eyeDist = Math.hypot(dist, pl.pos.y - m.pos.y);
+        const home = m.spawn.home;
+        if (alive && eyeDist < 40 && m.state !== 'combat') {
+          if (game.hasLineOfSight(m.pos, 1.6, pl.pos, 1.5)) { m.state = 'combat'; m.lostT = 0; m.atk = 0.8; }
+        }
+        if (m.state === 'patrol') {
+          if (!m.target || m.timer <= 0) {
+            const a = rand(0, Math.PI * 2), r = rand(3, home.r * 0.8);
+            m.target = { x: home.x + Math.cos(a) * r, z: home.z + Math.sin(a) * r };
+            m.timer = rand(5, 12);
+          }
+          const tx = m.target.x - m.pos.x, tz = m.target.z - m.pos.z;
+          if (Math.hypot(tx, tz) > 1) { targetYaw = Math.atan2(tx, tz); moveSpeed = 1.6; }
+        } else if (m.state === 'combat') {
+          targetYaw = Math.atan2(dx, dz);
+          const los = alive && game.hasLineOfSight(m.pos, 1.6, pl.pos, 1.5);
+          if (!los) m.lostT += dt; else m.lostT = 0;
+          if (!alive || m.lostT > 6 || eyeDist > 60) { m.state = 'patrol'; m.target = null; }
+          else {
+            if (eyeDist > 22) moveSpeed = 2.8;
+            else if (eyeDist < 8) { moveSpeed = -1.5; }
+            if (los && m.atk <= 0) this.npcShoot(m, eyeDist);
+          }
+        }
+      }
+      // поворот
+      const turn = clamp(angleDiff(m.yaw, targetYaw), -dt * 5, dt * 5);
+      m.yaw += turn;
+      // движение с проверкой препятствий
+      if (moveSpeed !== 0) {
+        const step = moveSpeed * dt;
+        const nx = m.pos.x + Math.sin(m.yaw) * step, nz = m.pos.z + Math.cos(m.yaw) * step;
+        const nh = w.getHeight(nx, nz);
+        const blocked = nh < 0.4 || nh - m.pos.y > 0.8 || this.blockedAt(nx, nz, m.pos.y, m.r * 0.7);
+        if (!blocked) {
+          m.pos.x = nx;
+          m.pos.z = nz;
+          m.phase += Math.abs(step) * 3;
+        } else {
+          m.target = null;
+          m.timer = 0;
+          if (m.state === 'flee' || m.state === 'chase') m.yaw += (Math.random() < 0.5 ? 1 : -1) * 0.9;
+        }
+      }
+      m.pos.y = this.groundAt(m.pos.x, m.pos.z, m.pos.y);
+      m.speed = moveSpeed;
+      // анимация
+      const sw = moveSpeed !== 0 ? Math.sin(m.phase) * 0.6 : 0;
+      m.legs.forEach((l, i) => { l.rotation.x = (i % 2 === 0 ? sw : -sw) * (i < 2 || m.npc ? 1 : -1); });
+      m.root.position.copy(m.pos);
+      m.root.rotation.y = m.yaw;
+      if (m.flash) {
+        m.flashT = (m.flashT || 0) - dt;
+        m.flash.visible = m.flashT > 0;
+      }
+    }
+  }
+
+  blockedAt(x, z, y, r) {
+    const list = this.world.colliders.query(x - r, z - r, x + r, z + r);
+    for (const c of list) {
+      if (c.maxY <= y + 0.5 || c.minY >= y + 1.5) continue;
+      if (x + r > c.minX && x - r < c.maxX && z + r > c.minZ && z - r < c.maxZ) return true;
+    }
+    return false;
+  }
+
+  groundAt(x, z, y) {
+    let g = this.world.getHeight(x, z);
+    const list = this.world.colliders.query(x - 0.1, z - 0.1, x + 0.1, z + 0.1);
+    for (const c of list) {
+      if (x < c.minX || x > c.maxX || z < c.minZ || z > c.maxZ) continue;
+      if (c.maxY <= y + 0.6 && c.maxY > g) g = c.maxY;
+    }
+    return g;
+  }
+
+  npcShoot(m, dist) {
+    const game = this.game;
+    const pl = game.player;
+    m.burst = (m.burst || 0) + 1;
+    m.atk = m.burst % 4 === 0 ? 1.6 : 0.35;
+    m.flashT = 0.06;
+    game.sfx('npcshot', m.pos);
+    const moving = pl.moveSpeed > 1 ? 0.2 : 0;
+    const p = clamp(0.72 - dist / 42 - moving, 0.08, 0.65);
+    const from = new THREE.Vector3(m.pos.x + Math.sin(m.yaw) * 1.3, m.pos.y + 1.5, m.pos.z + Math.cos(m.yaw) * 1.3);
+    const to = new THREE.Vector3(pl.pos.x, pl.pos.y + 1.2, pl.pos.z);
+    if (Math.random() < p) {
+      game.damagePlayer(randi(5, 8), 'Учёный');
+    } else {
+      to.x += rand(-1.5, 1.5); to.y += rand(-0.5, 1.5); to.z += rand(-1.5, 1.5);
+    }
+    this.tracer(from, to, 0xffe08a);
+  }
+
+  // ---------- Сумки ----------
+  addBag(x, y, z, items, life = 600) {
+    const b = { kind: 'bag', x, y, z, inv: new Inventory(24), t: life, name: 'Мешок с лутом' };
+    for (const it of items) {
+      if (it.ammo !== undefined) b.inv.addStack({ ...it });
+      else b.inv.add(it.id, it.n);
+    }
+    b.mesh = new THREE.Mesh(bagGeo, bagMat);
+    b.mesh.position.set(x, y + 0.2, z);
+    b.mesh.rotation.y = rand(0, 6);
+    b.mesh.castShadow = true;
+    this.scene.add(b.mesh);
+    this.bags.push(b);
+    return b;
+  }
+
+  removeBag(b) {
+    this.scene.remove(b.mesh);
+    const i = this.bags.indexOf(b);
+    if (i >= 0) this.bags.splice(i, 1);
+  }
+
+  // ---------- Стрелы ----------
+  shootArrow(o, dir, speed, dmg) {
+    const mesh = new THREE.Mesh(arrowGeo, arrowMat);
+    mesh.position.copy(o);
+    this.scene.add(mesh);
+    this.arrows.push({ pos: o.clone(), vel: dir.clone().multiplyScalar(speed), mesh, life: 6, dmg, stuck: false });
+  }
+
+  updateArrows(dt) {
+    const tmp = new THREE.Vector3();
+    for (let i = this.arrows.length - 1; i >= 0; i--) {
+      const a = this.arrows[i];
+      a.life -= dt;
+      if (a.life <= 0) { this.scene.remove(a.mesh); this.arrows.splice(i, 1); continue; }
+      if (a.stuck) continue;
+      a.vel.y -= 9.8 * dt * 0.6;
+      const len = a.vel.length() * dt;
+      tmp.copy(a.vel).normalize();
+      const hit = this.game.raycast(a.pos, tmp, len, { skipPlayer: true });
+      if (hit) {
+        a.pos.addScaledVector(tmp, hit.t);
+        a.stuck = true;
+        a.life = 10;
+        if (hit.kind === 'mob') {
+          this.damage(hit.obj, a.dmg);
+          this.game.ui.hitmarker();
+          this.game.sfx('flesh', a.pos);
+          this.scene.remove(a.mesh);
+          this.arrows.splice(i, 1);
+          continue;
+        }
+        this.game.sfx('wood', a.pos, 0.5);
+      } else {
+        a.pos.addScaledVector(tmp, len);
+      }
+      a.mesh.position.copy(a.pos);
+      a.mesh.lookAt(tmp.add(a.pos));
+    }
+  }
+
+  // ---------- Трассеры ----------
+  tracer(from, to, color = 0xffffaa) {
+    const g = new THREE.BufferGeometry().setFromPoints([from, to]);
+    const l = new THREE.Line(g, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9 }));
+    this.scene.add(l);
+    this.tracers.push({ l, t: 0.08 });
+  }
+
+  // ---------- Частицы ----------
+  initParticles() {
+    const N = 300;
+    this.pN = N;
+    this.pIM = new THREE.InstancedMesh(new THREE.BoxGeometry(0.08, 0.08, 0.08), new THREE.MeshBasicMaterial(), N);
+    this.pIM.frustumCulled = false;
+    this.parts = [];
+    const m = new THREE.Matrix4().makeScale(0, 0, 0);
+    const c = new THREE.Color(1, 1, 1);
+    for (let i = 0; i < N; i++) {
+      this.pIM.setMatrixAt(i, m);
+      this.pIM.setColorAt(i, c);
+      this.parts.push({ life: 0, p: new THREE.Vector3(), v: new THREE.Vector3() });
+    }
+    this.pNext = 0;
+    this.scene.add(this.pIM);
+  }
+
+  burst(x, y, z, color, n = 8, spd = 3) {
+    const col = new THREE.Color(color);
+    for (let i = 0; i < n; i++) {
+      const idx = this.pNext = (this.pNext + 1) % this.pN;
+      const p = this.parts[idx];
+      p.life = rand(0.4, 0.8);
+      p.p.set(x, y, z);
+      p.v.set(rand(-1, 1) * spd, rand(0.5, 1.5) * spd, rand(-1, 1) * spd);
+      this.pIM.setColorAt(idx, col);
+    }
+    this.pIM.instanceColor.needsUpdate = true;
+  }
+
+  blood(x, y, z) {
+    this.burst(x, y, z, 0x8a1010, 10, 2.5);
+  }
+
+  updateParticles(dt) {
+    const m = new THREE.Matrix4();
+    let any = false;
+    for (let i = 0; i < this.pN; i++) {
+      const p = this.parts[i];
+      if (p.life <= 0) continue;
+      any = true;
+      p.life -= dt;
+      p.v.y -= 12 * dt;
+      p.p.addScaledVector(p.v, dt);
+      const s = p.life > 0 ? 1 : 0;
+      m.makeScale(s, s, s).setPosition(p.p);
+      this.pIM.setMatrixAt(i, m);
+    }
+    if (any) this.pIM.instanceMatrix.needsUpdate = true;
+  }
+
+  updateFx(dt) {
+    this.updateArrows(dt);
+    this.updateParticles(dt);
+    for (let i = this.tracers.length - 1; i >= 0; i--) {
+      const t = this.tracers[i];
+      t.t -= dt;
+      if (t.t <= 0) {
+        this.scene.remove(t.l);
+        t.l.geometry.dispose();
+        t.l.material.dispose();
+        this.tracers.splice(i, 1);
+      }
+    }
+    for (let i = this.bags.length - 1; i >= 0; i--) {
+      const b = this.bags[i];
+      b.t -= dt;
+      if (b.t <= 0) this.removeBag(b);
+    }
+  }
+
+  // ---------- Луч ----------
+  raycast(o, d, best) {
+    for (const m of this.mobs) {
+      if (Math.abs(m.pos.x - o.x) > best.t + 3 || Math.abs(m.pos.z - o.z) > best.t + 3) continue;
+      let t;
+      if (m.dead) t = raySphere(o, d, m.pos.x, m.pos.y + 0.35, m.pos.z, m.animal ? m.r + 0.2 : 0.7, best.t);
+      else t = rayCylY(o, d, m.pos.x, m.pos.z, m.r, m.pos.y, m.pos.y + m.h, best.t);
+      if (t >= 0 && t < best.t) { best.t = t; best.kind = 'mob'; best.obj = m; }
+    }
+    for (const b of this.bags) {
+      const t = raySphere(o, d, b.x, b.y + 0.2, b.z, 0.4, best.t);
+      if (t >= 0 && t < best.t) { best.t = t; best.kind = 'bag'; best.obj = b; }
+    }
+    return best;
+  }
+
+  serializeBags() {
+    return this.bags.map((b) => ({ x: b.x, y: b.y, z: b.z, t: b.t, items: b.inv.serialize() }));
+  }
+
+  loadBags(arr) {
+    for (const b of [...this.bags]) this.removeBag(b);
+    for (const b of arr || []) {
+      const bag = this.addBag(b.x, b.y, b.z, [], b.t);
+      bag.inv.load(b.items);
+    }
+  }
+}
+
+// Таймеры в игровом времени (не тикают на паузе).
+function setTimeoutGame(game, sec, fn) {
+  game.timers.push({ t: sec, fn });
+}

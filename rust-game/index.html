@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>Ржавый остров: Выживание</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Yandex Games SDK: на платформе отдаётся по относительному пути /sdk.js -->
+  <script src="/sdk.js"></script>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <!-- HUD -->
+  <div id="hud" class="hidden">
+    <div id="crosshair"></div>
+    <div id="hitmarker">✕</div>
+    <div id="vignette"></div>
+    <div id="clock"></div>
+    <div id="toast"></div>
+    <div id="feed"></div>
+    <div id="prompt"></div>
+    <div id="buildinfo"></div>
+    <div id="ammo"></div>
+    <div id="queue"></div>
+    <div id="stats">
+      <div class="stat hp"><span>❤️</span><div class="bar"><div></div></div><b>100</b></div>
+      <div class="stat food"><span>🍗</span><div class="bar"><div></div></div><b>100</b></div>
+      <div class="stat water"><span>💧</span><div class="bar"><div></div></div><b>100</b></div>
+    </div>
+    <div id="hotbar"></div>
+  </div>
+
+  <!-- Сенсорное управление -->
+  <div id="touch" class="hidden">
+    <div id="joy"><div id="joyKnob"></div></div>
+    <div class="tbtn" id="tAttack">👊</div>
+    <div class="tbtn small" id="tAlt">🔄</div>
+    <div class="tbtn small" id="tJump">⤒</div>
+    <div class="tbtn small" id="tUse">✋</div>
+    <div class="tbtn small" id="tReload">R</div>
+    <div class="tbtn small" id="tSprint">🏃</div>
+    <div class="tbtn small" id="tInv">🎒</div>
+    <div class="tbtn small" id="tMap">🗺️</div>
+  </div>
+
+  <!-- Инвентарь -->
+  <div id="inventory" class="hidden">
+    <div class="panel craft">
+      <h3>Крафт</h3>
+      <div id="craftCats"></div>
+      <div id="craftList"></div>
+      <div id="craftInfo"></div>
+      <div id="craftQueue"></div>
+    </div>
+    <div class="panel inv">
+      <h3>Инвентарь <button id="quickBtn" title="Быстрое перемещение (для телефона)">⇄</button></h3>
+      <div id="invGrid" class="grid"></div>
+      <div class="sub">Пояс (1–6)</div>
+      <div id="invHot" class="grid"></div>
+      <div id="itemInfo"></div>
+    </div>
+    <div class="panel cont hidden" id="contPanel">
+      <h3 id="contTitle"></h3>
+      <div id="contGrid" class="grid"></div>
+      <div id="contActions"></div>
+    </div>
+    <button id="invClose">✕</button>
+  </div>
+  <div id="cursorItem"></div>
+
+  <!-- Карта -->
+  <div id="mapScreen" class="hidden">
+    <div id="mapWrap"><canvas id="mapCanvas"></canvas><div id="mapMarkers"></div></div>
+  </div>
+
+  <!-- Экраны -->
+  <div id="loading" class="screen">
+    <div class="logo">РЖАВЫЙ ОСТРОВ</div>
+    <div class="spinner"></div>
+    <div>Генерация острова…</div>
+  </div>
+
+  <div id="menu" class="screen hidden">
+    <div class="logo">РЖАВЫЙ ОСТРОВ</div>
+    <div class="subtitle">Выживание · добыча · крафт · строительство</div>
+    <button id="btnPlay" class="big">Играть</button>
+    <button id="btnNew">Новая игра</button>
+    <div class="help desk">
+      <b>WASD</b> — ходьба · <b>Shift</b> — бег · <b>Пробел</b> — прыжок · <b>Мышь</b> — обзор<br>
+      <b>ЛКМ</b> — удар / действие · <b>ПКМ</b> — доп. действие · <b>E</b> — взаимодействие<br>
+      <b>Tab</b> — инвентарь и крафт · <b>1–6</b> — пояс · <b>R</b> — перезарядка / поворот · <b>M</b> — карта
+    </div>
+    <div class="help tips">
+      Бейте деревья и камни, чтобы добыть ресурсы. Сделайте топор и кирку,
+      постройте дом из плана постройки, укрепите его киянкой. Опасайтесь волков,
+      медведей и учёных на военной базе — зато там лучший лут!
+    </div>
+  </div>
+
+  <div id="pause" class="screen hidden">
+    <div class="logo small">Пауза</div>
+    <button id="btnResume" class="big">Продолжить</button>
+    <button id="btnSound">🔊 Звук: вкл</button>
+    <label class="sens">Чувствительность мыши <input id="sens" type="range" min="0.3" max="2.5" step="0.1" value="1"></label>
+    <button id="btnPauseNew">Новая игра</button>
+  </div>
+
+  <div id="death" class="screen hidden">
+    <div class="logo small red">Вы погибли</div>
+    <div id="deathReason"></div>
+    <div class="subtitle">Ваши вещи остались в мешке на месте гибели</div>
+    <button id="btnRespawnBeach" class="big">Возродиться на пляже</button>
+    <button id="btnRespawnBag">Возродиться в спальнике</button>
+    <button id="btnRespawnKit" class="ad">🎁 Возродиться с набором (реклама)</button>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
