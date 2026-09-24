@@ -2,7 +2,7 @@
 -- Shared tuning values. Safe to read on the client: contains no secrets.
 local Config = {}
 
-Config.Version = "0.16.0"
+Config.Version = "0.17.0"
 Config.GameName = "THE RIG: 100 DAYS"
 
 -- Time: one in-game day (24 h) lasts DaySeconds real seconds and starts at 06:00.
@@ -11,6 +11,9 @@ Config.DaySeconds = 300
 Config.StartHour = 6
 Config.EveningHour = 18
 Config.NightHour = 21
+-- Nights 1-3 are calm: no creature of any kind comes before this night.
+-- (The DEV panel in Studio can still spawn them for testing.)
+Config.FirstMonsterNight = 4
 
 -- World
 Config.WaterLevel = 0
@@ -143,7 +146,7 @@ Config.Tiers = {
 -- The Peeker: waits behind a crate or a corner somewhere behind you and watches. Turn
 -- round and look at it and it is gone. For now it only watches.
 Config.Peeker = {
-	chance = 0.42, -- chance it comes on a given night (from night 1)
+	chance = 0.42, -- chance it comes on a given night (from Config.FirstMonsterNight)
 	evening = 0.15, -- chance it already comes in the evening
 	distance = { 18, 55 }, -- how far behind you it waits
 	stare = 0.6, -- seconds you can look at it before it is gone
@@ -191,6 +194,8 @@ Config.Sounds = {
 	-- 0.15: the game's own recordings. Upload each file to Roblox (Creator Hub -> Development
 	-- Items -> Audio, or in Studio: Asset Manager -> Import), copy its id and paste it here,
 	-- e.g. PlayerScream = 1234567890. Left empty, a built-in stand-in plays instead.
+	-- 0.17: EASIER — ReplicatedStorage/GameSounds has a ready Sound for every slot below:
+	-- select it in Studio and set its SoundId in Properties (it wins over the ids here).
 	PlayerScream = "", -- крик игрока по кнопке X
 	Corridors = "", -- звук для помещения коридорчиков (loops while you are inside corridors / tunnels)
 	Distant = "", -- звук для фона, иногда кричит издалека (at night, far away)

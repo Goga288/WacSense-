@@ -45,7 +45,8 @@ function Director.onPhase(phase, day)
 			G.AI.Silhouette.summon()
 		end
 	end
-	if phase == "Evening" or phase == "Night" then
+	local calm = day < (Config.FirstMonsterNight or 1)
+	if (phase == "Evening" or phase == "Night") and not calm then
 		-- Tonight's creatures (the evening scouts already come from them).
 		G.AI.Roster.roll(day)
 	end
@@ -72,7 +73,10 @@ function Director.onPhase(phase, day)
 		Director.leviathanHour = (math.random() < p.leviathanChance) and (p.final and 2 or math.random(22, 27) % 24) or nil
 		local title = p.final and "THE FINAL NIGHT" or ("NIGHT " .. day)
 		local sub = p.final and "Everything is coming up. Survive until dawn." or "Movement in the water. Stay near powered floodlights — and never stay in one place for long."
-		G.Net.banner(title, sub, "danger")
+		if calm then
+			sub = "The sea is quiet tonight. Nothing has come up yet — use the time: fuel, repairs, supplies."
+		end
+		G.Net.banner(title, sub, calm and "warn" or "danger")
 		if math.random() < p.watcherChance then
 			G.AI.Watcher.appear()
 		end

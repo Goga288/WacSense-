@@ -651,6 +651,10 @@ end
 --         kind = id, tier = "D1" | "D2" | "D3" (DEV: any kind of that tier)}
 function Climber.spawn(opts)
 	opts = opts or {}
+	-- The first nights are calm (Config.FirstMonsterNight): nothing comes up at all.
+	if not opts.force and (G.DayCycle.day or 1) < (Config.FirstMonsterNight or 1) then
+		return nil
+	end
 	-- The tier creatures come every night from the first; the old ones wait for day 6.
 	if not AI.allowed(opts.force) and not (Roster and Roster.hasKinds()) then
 		return nil

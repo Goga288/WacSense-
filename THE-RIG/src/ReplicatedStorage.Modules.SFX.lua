@@ -7,6 +7,9 @@
 -- 0.15: slots for the game's own recordings (PlayerScream, Corridors, Distant, Jumpscare,
 -- Peeker, Apex). An id may be written as a number, "123" or "rbxassetid://123"; until one
 -- is set, the stand-in recipe below plays so every hook can be heard in Studio.
+-- 0.17: the easiest way: ReplicatedStorage/GameSounds has one Sound per slot. Select it in
+-- Studio, set its SoundId (paste the id or pick your uploaded audio), press Play. Its Volume,
+-- PlaybackSpeed and Looped are used as they are. It wins over Config.Sounds.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SoundService = game:GetService("SoundService")
 local Debris = game:GetService("Debris")
@@ -89,8 +92,22 @@ local function config()
 	return ok and Config or nil
 end
 
--- A real asset id from Config.Sounds, normalised to "rbxassetid://N", or nil.
+-- The slot Sound in ReplicatedStorage/GameSounds, once it has a SoundId.
+local function slotSound(name)
+	local folder = ReplicatedStorage:FindFirstChild("GameSounds")
+	local s = folder and folder:FindFirstChild(name)
+	if s and s:IsA("Sound") and s.SoundId ~= "" then
+		return s
+	end
+	return nil
+end
+
+-- A real asset id (GameSounds slot, then Config.Sounds) as "rbxassetid://N", or nil.
 local function override(name)
+	local slot = slotSound(name)
+	if slot then
+		return slot.SoundId
+	end
 	local Config = config()
 	local id = Config and Config.Sounds and Config.Sounds[name]
 	if type(id) == "number" and id > 0 then
@@ -120,15 +137,19 @@ function SFX.make(name, parent)
 	local s = Instance.new("Sound")
 	s.Name = "SFX_" .. name
 	local custom = override(name)
+	local slot = slotSound(name)
 	s.SoundId = custom or r.id
 	s.PlaybackSpeed = custom and 1 or (r.speed or 1)
 	s.Volume = r.volume or 0.8
-	if custom then
+	if slot then
+		s.Volume = slot.Volume
+		s.PlaybackSpeed = slot.PlaybackSpeed
+	elseif custom then
 		local Config = config()
 		local v = Config and Config.SoundVolume and Config.SoundVolume[name]
 		s.Volume = type(v) == "number" and v or math.min(s.Volume, 1.5)
 	end
-	s.Looped = r.loop == true
+	s.Looped = r.loop == true or (slot ~= nil and slot.Looped)
 	if parent then
 		s.RollOffMode = Enum.RollOffMode.InverseTapered
 		s.RollOffMinDistance = 8

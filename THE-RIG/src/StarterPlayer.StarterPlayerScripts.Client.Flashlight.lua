@@ -16,8 +16,11 @@ local C
 local camera = workspace.CurrentCamera
 
 -- 1 stud = 0.28 m; normal beam reaches 16.8 m, focused beam 19.6 m.
-local NORMAL = { Angle = 50, Range = 60, Brightness = 4.5 }
-local FOCUS = { Angle = 22, Range = 70, Brightness = 8 }
+-- 0.17: a wide beam (82 degrees) plus a soft 140-degree fill, so the edges of the view are
+-- not pitch black; the focused beam stays narrow and hot.
+local NORMAL = { Angle = 82, Range = 60, Brightness = 4 }
+local FOCUS = { Angle = 24, Range = 70, Brightness = 8 }
+local WIDE = { Angle = 140, Range = 26, Brightness = 0.9 }
 
 -- Client-only folder for local lights. Anything a LocalScript puts in Workspace stays on
 -- this client; the server and other players never see it.
@@ -86,10 +89,22 @@ function Flash.init(ctx)
 	spot.Color = Color3.fromRGB(255, 242, 218)
 	spot.Enabled = false
 	spot.Parent = p
+	-- Soft wide fill around the beam, without shadows (cheap).
+	local wide = Instance.new("SpotLight")
+	wide.Name = "WideFill"
+	wide.Face = Enum.NormalId.Front
+	wide.Shadows = false
+	wide.Color = Color3.fromRGB(255, 238, 212)
+	wide.Angle = WIDE.Angle
+	wide.Range = WIDE.Range
+	wide.Brightness = WIDE.Brightness
+	wide.Enabled = false
+	wide.Parent = p
+	Flash.wide = wide
 	-- Faint spill so the area right around you is not pitch black next to the beam.
 	local spill = Instance.new("PointLight")
-	spill.Range = 9
-	spill.Brightness = 0.35
+	spill.Range = 12
+	spill.Brightness = 0.45
 	spill.Color = Color3.fromRGB(255, 236, 205)
 	spill.Shadows = false
 	spill.Enabled = false
@@ -129,14 +144,17 @@ function Flash.render(dt)
 	local hum = character and character:FindFirstChildOfClass("Humanoid")
 	-- Never draw the replicated copy of our own server beam.
 	local mount = head and head:FindFirstChild("TorchMount")
-	local serverTorch = mount and mount:FindFirstChild("Torch")
-	if serverTorch and serverTorch.Enabled then
-		serverTorch.Enabled = false
+	for _, name in ipairs({ "Torch", "TorchWide" }) do
+		local serverLight = mount and mount:FindFirstChild(name)
+		if serverLight and serverLight.Enabled then
+			serverLight.Enabled = false
+		end
 	end
 	local on = not C.panelOpen and Flash.isOn() and hum ~= nil and hum.Health > 0
 	if not on or not head then
 		Flash.spot.Enabled = false
 		Flash.spill.Enabled = false
+		Flash.wide.Enabled = false
 		Flash.dir = nil
 		return
 	end
@@ -147,16 +165,19 @@ function Flash.render(dt)
 	local origin
 	local lens
 	if C.Viewmodel and C.Viewmodel.items and C.Viewmodel.firstPerson then
-		for _, it in ipairs(C.Viewmodel.items.Left or {}) do
-			if it.part.Name == "Lens" and it.part.Transparency < 0.5 then
-				lens = it.part
+		-- The torch is in the right hand since 0.16 (older builds held it in the left).
+		for _, side in ipairs({ "Right", "Left" }) do
+			for _, it in ipairs(C.Viewmodel.items[side] or {}) do
+				if it.part.Name == "Lens" and it.part.Transparency < 0.5 then
+					lens = it.part
+				end
 			end
 		end
 	end
 	if lens then
 		origin = lens.Position + Flash.dir * 0.15
 	elseif (cam.Position - head.Position).Magnitude < 2 then
-		origin = cam.Position + cam.RightVector * -0.4 + cam.UpVector * -0.35 + look * 0.6
+		origin = cam.Position + cam.RightVector * 0.4 + cam.UpVector * -0.35 + look * 0.6
 	else
 		origin = head.Position + Flash.dir * 1.2
 	end
@@ -178,7 +199,9 @@ function Flash.render(dt)
 	Flash.spot.Enabled = true
 	Flash.spot.Brightness = flicker and beam.Brightness * (math.random() < 0.5 and 0.05 or 0.4) or beam.Brightness
 	Flash.spill.Enabled = not flicker
-	Flash.spill.Brightness = 0.35
+	Flash.spill.Brightness = 0.45
+	Flash.wide.Enabled = not flicker
+	Flash.wide.Brightness = player:GetAttribute("TorchFocus") and WIDE.Brightness * 0.45 or WIDE.Brightness
 end
 
 return Flash

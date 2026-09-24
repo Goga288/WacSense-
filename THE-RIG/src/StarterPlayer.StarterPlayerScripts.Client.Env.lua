@@ -63,18 +63,22 @@ function Env.init(ctx)
 	Env.blur = effect("BlurEffect", "UnderwaterBlur")
 	Env.sunrays = effect("SunRaysEffect", "SunRays")
 	Env.blur.Size = 0
-	Env.bloom.Intensity = 0.09
-	Env.bloom.Size = 28
-	Env.bloom.Threshold = 2.1
+	-- 0.17 grade: lamps and neon glow a little, shadows are crisper, metal reflects the sky.
+	Env.bloom.Intensity = 0.13
+	Env.bloom.Size = 24
+	Env.bloom.Threshold = 1.8
 	Env.dof.FarIntensity = 0.04
 	Env.dof.FocusDistance = 60
 	Env.dof.InFocusRadius = 90
 	Env.dof.NearIntensity = 0
 	Env.sunrays.Intensity = 0.04
 	Env.sunrays.Spread = 0.6
-	Lighting.EnvironmentDiffuseScale = 0.65
-	Lighting.EnvironmentSpecularScale = 0.7
+	Lighting.EnvironmentDiffuseScale = 1
+	Lighting.EnvironmentSpecularScale = 1
 	Lighting.ExposureCompensation = 0.1
+	pcall(function()
+		Lighting.ShadowSoftness = 0.18
+	end)
 	Env.cur = nil
 	Env.clouds = workspace.Terrain:FindFirstChildOfClass("Clouds") or Instance.new("Clouds")
 	Env.clouds.Name = "AtlanticClouds"
@@ -195,19 +199,20 @@ function Env.render(dt)
 	Env.clouds.Color = Color3.fromRGB(192, 204, 210):Lerp(Color3.fromRGB(224, 185, 147), golden * .5)
 	Env.sunrays.Intensity = .015 + golden * .045
 
-	-- Horror grade: nights are near-black (the flashlight matters), days are overcast and cold,
-	-- fog is always there and thickens at night.
+	-- Horror grade: nights are near-black (the flashlight matters), fog thickens at night.
+	-- 0.17: days are clearer and brighter so the rig reads (less haze, more colour); nights
+	-- keep their cold, drained look.
 	local target = {
-		brightness = 0.35 + 1.55 * lit,
-		ambient = lerpColor(Color3.fromRGB(10, 12, 16), Color3.fromRGB(64, 70, 76), lit),
-		outdoor = lerpColor(Color3.fromRGB(16, 20, 26), Color3.fromRGB(98, 106, 112), lit),
-		density = math.min(0.72, lerp(0.6, 0.38, d) + weather.fog * 0.5),
-		haze = lerp(3.2, 1.8, d) + weather.fog * 3,
-		atmoColor = lerpColor(Color3.fromRGB(40, 50, 58), Color3.fromRGB(150, 160, 164), lit),
-		decay = lerpColor(Color3.fromRGB(16, 22, 28), Color3.fromRGB(96, 104, 106), lit),
-		sat = lerp(-0.42, -0.3, d),
-		contrast = 0.16 + (1 - d) * 0.06,
-		tint = lerpColor(Color3.fromRGB(176, 200, 206), Color3.fromRGB(226, 234, 230), d),
+		brightness = 0.3 + 2.1 * lit,
+		ambient = lerpColor(Color3.fromRGB(9, 11, 15), Color3.fromRGB(78, 84, 90), lit),
+		outdoor = lerpColor(Color3.fromRGB(14, 18, 24), Color3.fromRGB(124, 132, 138), lit),
+		density = math.min(0.72, lerp(0.58, 0.3, d) + weather.fog * 0.5),
+		haze = lerp(3.0, 1.1, d) + weather.fog * 3,
+		atmoColor = lerpColor(Color3.fromRGB(36, 46, 56), Color3.fromRGB(178, 188, 194), lit),
+		decay = lerpColor(Color3.fromRGB(16, 22, 28), Color3.fromRGB(106, 116, 120), lit),
+		sat = lerp(-0.34, -0.1, d),
+		contrast = 0.1 + (1 - d) * 0.08,
+		tint = lerpColor(Color3.fromRGB(170, 196, 208), Color3.fromRGB(242, 242, 236), d),
 	}
 	target.atmoColor = target.atmoColor:Lerp(Color3.fromRGB(170, 130, 100), golden * .18)
 	target.decay = target.decay:Lerp(Color3.fromRGB(120, 90, 76), golden * .2)
@@ -249,7 +254,7 @@ function Env.render(dt)
 	Env.atmo.Color = cur.atmoColor
 	Env.atmo.Decay = cur.decay
 	Env.atmo.Offset = 0.1
-	Env.atmo.Glare = d * 0.3
+	Env.atmo.Glare = d * 0.45
 	Env.cc.Saturation = cur.sat
 	Env.cc.Contrast = cur.contrast
 	Env.cc.TintColor = cur.tint

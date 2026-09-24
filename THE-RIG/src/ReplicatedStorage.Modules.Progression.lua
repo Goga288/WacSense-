@@ -88,7 +88,8 @@ function Progression.profile(day)
 	-- Climbers. Days 1-5: only the tier creatures from the map come (AI/Roster), a few at a
 	-- time; the old creatures stay down until day 6.
 	if b == 0 then
-		p.climberMax = math.min(2 + (day - 1) // 2, 3)
+		-- Nights 1-3: nothing (Config.FirstMonsterNight); nights 4-5: two, then three.
+		p.climberMax = day <= 3 and 0 or (day == 4 and 2 or 3)
 	elseif b == 1 then
 		p.climberMax = math.min(2 + (day - 6) // 2, 4)
 	else

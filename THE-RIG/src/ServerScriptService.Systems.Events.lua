@@ -20,7 +20,8 @@ local DEFS = {
 	{ id = "POWER_FAILURE", tone = "danger", weight = 10, minDay = 2 },
 	{ id = "STORM_APPROACHING", tone = "warn", weight = 8, minDay = 4, dayOnly = true },
 	{ id = "UNKNOWN_SIGNAL", tone = "info", weight = 7, minDay = 3, dayOnly = true },
-	{ id = "CREATURE_DETECTED", tone = "danger", weight = 9, minDay = 2, nightOnly = true },
+	-- Not before the first night anything comes up (nights 1-3 are calm).
+	{ id = "CREATURE_DETECTED", tone = "danger", weight = 9, minDay = Config.FirstMonsterNight or 4, nightOnly = true },
 	{ id = "GENERATOR_MALFUNCTION", tone = "danger", weight = 8, minDay = 3, malfunction = true },
 	{ id = "SUPPLY_CRATE", tone = "good", weight = 9, minDay = 1, dayOnly = true },
 	{ id = "BOAT_SIGNAL", tone = "good", weight = 6, minDay = 5, dayOnly = true },

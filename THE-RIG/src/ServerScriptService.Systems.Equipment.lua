@@ -101,8 +101,10 @@ function Equipment.onCharacter(player, character)
 	Equipment.refresh(player)
 end
 
-local NORMAL_BEAM = { Angle = 50, Range = 60, Brightness = 4.5 }
-local FOCUS_BEAM = { Angle = 22, Range = 70, Brightness = 8 }
+-- 0.17: wider normal beam, plus a soft wide fill (TorchWide) that other players see too.
+local NORMAL_BEAM = { Angle = 82, Range = 60, Brightness = 4 }
+local FOCUS_BEAM = { Angle = 24, Range = 70, Brightness = 8 }
+local WIDE_FILL = { Angle = 140, Range = 26, Brightness = 0.9 }
 
 -- The server beam other players see. Built on demand and rebuilt if the head was replaced;
 -- its Enabled always follows state.torchOn.
@@ -132,9 +134,25 @@ local function torchOf(player)
 		torch.Enabled = false
 		torch.Parent = mount
 	end
+	local wide = mount:FindFirstChild("TorchWide")
+	if not wide then
+		wide = Instance.new("SpotLight")
+		wide.Name = "TorchWide"
+		wide.Face = Enum.NormalId.Front
+		wide.Color = Color3.fromRGB(255, 240, 220)
+		wide.Shadows = false
+		for k, v in pairs(WIDE_FILL) do
+			wide[k] = v
+		end
+		wide.Enabled = false
+		wide.Parent = mount
+	end
 	local want = s.torchOn == true
 	if torch.Enabled ~= want then
 		torch.Enabled = want
+	end
+	if wide.Enabled ~= want then
+		wide.Enabled = want
 	end
 	return torch
 end

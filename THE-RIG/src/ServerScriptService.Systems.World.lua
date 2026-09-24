@@ -269,11 +269,12 @@ end
 -- Yields while building the ocean. Called once from Main before anything unanchors.
 function World.buildTerrain()
 	local T = workspace.Terrain
-	T.WaterColor = Color3.fromRGB(14, 40, 46)
-	T.WaterTransparency = 0.6
-	T.WaterReflectance = 0.55
-	T.WaterWaveSize = 0.3
-	T.WaterWaveSpeed = 8
+	-- 0.17: a deeper, more reflective North Sea.
+	T.WaterColor = Color3.fromRGB(16, 54, 64)
+	T.WaterTransparency = 0.55
+	T.WaterReflectance = 0.8
+	T.WaterWaveSize = 0.22
+	T.WaterWaveSpeed = 12
 	local half = Config.OceanHalfSize
 	local top, bottom = Config.WaterLevel, Config.SeabedY
 	-- Deep water (to the seabed) within +-1024 of the rig; a shallower shelf elsewhere keeps

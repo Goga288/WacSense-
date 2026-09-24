@@ -212,6 +212,9 @@ function Peeker.summon(force)
 	if not kind() then
 		return false
 	end
+	if not force and (G.DayCycle.day or 1) < (Config.FirstMonsterNight or 1) then
+		return false
+	end
 	Peeker.want = true
 	Peeker.visits = 0
 	Peeker.target = nil
