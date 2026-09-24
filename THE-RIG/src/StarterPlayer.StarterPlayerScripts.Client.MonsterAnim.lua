@@ -651,7 +651,7 @@ local function step(rig, dt, now, serverNow)
 	if still then
 		targetWalk = 0
 	end
-	rig.walk += (targetWalk - rig.walk) * math.min(dt * 6, 1)
+	rig.walk += (targetWalk - rig.walk) * (1 - math.exp(-dt * 6))
 	local w = rig.walk
 	local cadence = math.clamp(speed / math.max(rig.legLen * 1.6, 0.5), 0.5, 3.4)
 	if climbing then
@@ -944,6 +944,10 @@ local function step(rig, dt, now, serverNow)
 			for k = 1, #e, 2 do
 				base = base * rot(e[k], e[k + 1])
 			end
+		end
+		-- Ease procedural pose changes without softening the authored attack clips.
+		if not clipCtx and not dead then
+			base = info.bone.Transform:Lerp(base, 1 - math.exp(-dt * (attacking and 28 or 16)))
 		end
 		info.bone.Transform = base
 	end

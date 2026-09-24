@@ -153,7 +153,9 @@ function SFX.play(name, parent, opts)
 	end
 	s:Play()
 	if not s.Looped then
-		Debris:AddItem(s, 12)
+		-- Uploaded Apex recording is longer than twelve seconds.
+        s.Ended:Once(function() if s.Parent then s:Destroy() end end)
+        Debris:AddItem(s, 180)
 	end
 	return s
 end

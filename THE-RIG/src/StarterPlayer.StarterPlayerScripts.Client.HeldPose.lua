@@ -21,10 +21,17 @@ function Pose.init(_ctx)
 			if active then
 				if not entry then
 					entry={character=ch,joints={}};cache[player]=entry
-					for _,j in ipairs(ch:GetDescendants()) do
-						if j:IsA("Motor6D") and (j.Name=="LeftShoulder" or j.Name=="Left Shoulder" or j.Name=="LeftElbow" or j.Name=="LeftWrist") then entry.joints[j]=j.C0 end
-					end
 				end
+                -- Streaming and appearance replacement can add joints after the prop.
+                entry.scan = (entry.scan or 0) - dt
+                if entry.scan <= 0 then
+                    entry.scan = .5
+                    for _,j in ipairs(ch:GetDescendants()) do
+                        if j:IsA("Motor6D") and (j.Name=="RightShoulder" or j.Name=="Right Shoulder" or j.Name=="RightElbow" or j.Name=="RightWrist") and not entry.joints[j] then
+                            entry.joints[j]=j.C0
+                        end
+                    end
+                end
 				local aim=player:GetAttribute("TorchAim") or root.CFrame.LookVector
 				local localAim=root.CFrame:VectorToObjectSpace(aim)
 				local pitch=math.asin(math.clamp(localAim.Y,-.85,.85))
@@ -32,12 +39,12 @@ function Pose.init(_ctx)
 				for j,base in pairs(entry.joints) do
 					if j.Parent and j.Part0 then
 						local target=base
-						if j.Name=="LeftShoulder" or j.Name=="Left Shoulder" then
+						if j.Name=="RightShoulder" or j.Name=="Right Shoulder" then
 							-- Desired upper-arm direction is -Y towards the camera aim.
 							local armRotation=CFrame.Angles(math.pi/2+pitch,yaw,0)
 							local worldRotation=root.CFrame.Rotation*armRotation
 							target=CFrame.new(base.Position)*j.Part0.CFrame.Rotation:Inverse()*worldRotation*j.C1.Rotation
-						elseif j.Name=="LeftElbow" then target=base*CFrame.Angles(-.12,0,0) end
+						elseif j.Name=="RightElbow" then target=base*CFrame.Angles(-.12,0,0) end
 						j.C0=j.C0:Lerp(target,1-math.exp(-dt*16))
 						j.Transform=CFrame.identity
 					end

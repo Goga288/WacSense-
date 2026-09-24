@@ -63,17 +63,17 @@ function Env.init(ctx)
 	Env.blur = effect("BlurEffect", "UnderwaterBlur")
 	Env.sunrays = effect("SunRaysEffect", "SunRays")
 	Env.blur.Size = 0
-	Env.bloom.Intensity = 0.16
+	Env.bloom.Intensity = 0.09
 	Env.bloom.Size = 28
-	Env.bloom.Threshold = 1.7
-	Env.dof.FarIntensity = 0.08
+	Env.bloom.Threshold = 2.1
+	Env.dof.FarIntensity = 0.04
 	Env.dof.FocusDistance = 60
 	Env.dof.InFocusRadius = 90
 	Env.dof.NearIntensity = 0
 	Env.sunrays.Intensity = 0.04
 	Env.sunrays.Spread = 0.6
 	Lighting.EnvironmentDiffuseScale = 0.65
-	Lighting.EnvironmentSpecularScale = 0.45
+	Lighting.EnvironmentSpecularScale = 0.7
 	Lighting.ExposureCompensation = 0.1
 	Env.cur = nil
 	Env.clouds = workspace.Terrain:FindFirstChildOfClass("Clouds") or Instance.new("Clouds")
@@ -93,11 +93,12 @@ function Env.init(ctx)
 	rainPart.Size = Vector3.new(90, 1, 90)
 	rainPart.Parent = camera
 	local rain = Instance.new("ParticleEmitter")
-	rain.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	rain.Texture = "rbxasset://textures/particles/smoke_main.dds"
+	rain.Squash = NumberSequence.new(-.85)
 	rain.Color = ColorSequence.new(Color3.fromRGB(190, 205, 215))
 	rain.LightInfluence = 1
-	rain.Transparency = NumberSequence.new(0.35)
-	rain.Size = NumberSequence.new(0.12)
+	rain.Transparency = NumberSequence.new(0.68)
+	rain.Size = NumberSequence.new(0.045)
 	pcall(function()
 		rain.Squash = NumberSequence.new(3)
 	end)

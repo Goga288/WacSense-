@@ -29,8 +29,8 @@ function Dread.init(ctx)
 	-- Grain: tiny specks, tiled small, jumping to a new offset every frame.
 	grain = new("ImageLabel", {
 		BackgroundTransparency = 1, Image = "rbxasset://textures/particles/sparkles_main.dds",
-		ScaleType = Enum.ScaleType.Tile, TileSize = UDim2.fromOffset(64, 64),
-		ImageColor3 = Color3.fromRGB(214, 210, 198), ImageTransparency = 0.9,
+		ScaleType = Enum.ScaleType.Tile, TileSize = UDim2.fromOffset(3, 3),
+		ImageColor3 = Color3.fromRGB(214, 210, 198), ImageTransparency = 0.975,
 		Size = UDim2.new(1, 128, 1, 128), Position = UDim2.fromOffset(-64, -64),
 	}, gui)
 	-- Dust: soft dark smudges, tiled large, drifting slowly.
@@ -42,7 +42,7 @@ function Dread.init(ctx)
 	}, gui)
 	-- Scan lines: built once, tall enough for any screen.
 	local lines = new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ClipsDescendants = true }, gui)
-	for y = 0, 1600, 3 do
+	for y = 0, 2160, 8 do
 		new("Frame", {
 			BorderSizePixel = 0, BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.93,
 			Size = UDim2.new(1, 0, 0, 1), Position = UDim2.fromOffset(0, y),
@@ -105,7 +105,7 @@ function Dread.render()
 	local fear = C.Env and C.Env.fear or 0
 	local dark = night()
 	grain.Position = UDim2.fromOffset(-math.random(0, 64), -math.random(0, 64))
-	grain.ImageTransparency = 0.9 - fear * 0.08 - (dark and 0.03 or 0)
+	grain.ImageTransparency = 0.975 - fear * 0.018
 	dust.Position = UDim2.fromOffset(-((now * 7) % 420), -((now * 2) % 420))
 	-- A thump, then nothing, like a pulse: faster and harder the closer it is.
 	local rate = 1.05 + fear * 1.5

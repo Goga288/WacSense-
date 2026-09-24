@@ -88,7 +88,7 @@ function Equipment.onCharacter(player, character)
 	s.propId = nil
 	s.prop = nil
 	s.aim = nil
-	s.leftProp = nil
+	s.torchProp = nil
 	s.focus = false
 	s.torchOn = false
 	player:SetAttribute("TorchOn", false)
@@ -165,22 +165,22 @@ function Equipment.setFocus(player, on)
 	end
 end
 
--- Flashlight lives in the left hand for other players to see (the owner sees the viewmodel).
-local function refreshLeftHand(player, s)
+-- Flashlight lives in the right hand for other players to see (the owner sees the viewmodel).
+local function refreshTorchHand(player, s)
 	local character = player.Character
 	local want = character ~= nil and Equipment.hasFlashlight(player)
 	player:SetAttribute("HasFlashlight", Equipment.hasFlashlight(player))
-	if want and attached(s.leftProp, character) then
+	if want and attached(s.torchProp, character) then
 		return
 	end
-	if s.leftProp then
-		s.leftProp:Destroy()
-		s.leftProp = nil
+	if s.torchProp then
+		s.torchProp:Destroy()
+		s.torchProp = nil
 	end
 	if not want then
 		return
 	end
-	local hand = character:FindFirstChild("LeftHand") or character:FindFirstChild("Left Arm")
+	local hand = character:FindFirstChild("RightHand") or character:FindFirstChild("Right Arm")
 	if not hand then
 		return
 	end
@@ -214,7 +214,7 @@ local function refreshLeftHand(player, s)
 	weld.Part1 = prop
 	weld.Parent = prop
 	prop.Parent = character
-	s.leftProp = prop
+	s.torchProp = prop
 	-- Machined grip, bezel and end cap remain welded to the visible tool.
 	for index, z in ipairs({-.54,-.36,-.18,0,.18,.36,.54}) do
 		local ring = Instance.new("Part")
@@ -313,18 +313,18 @@ function Equipment.refresh(player)
 	local id = Equipment.equippedId(player)
 	local character = player.Character
 	player:SetAttribute("Equipped", id or "")
-	refreshLeftHand(player, s)
+	refreshTorchHand(player, s)
 	if s.torchOn and not Equipment.hasFlashlight(player) then
 		s.torchOn = false
 		Equipment.setFocus(player, false)
 	end
 	torchOf(player)
 	player:SetAttribute("TorchOn", s.torchOn == true)
-	local lens = s.leftProp and s.leftProp:FindFirstChild("Lens")
+	local lens = s.torchProp and s.torchProp:FindFirstChild("Lens")
 	if lens then
 		lens.Material = s.torchOn and Enum.Material.Neon or Enum.Material.Glass
 	end
-	-- The flashlight is carried in the left hand, so the right hand stays free for tools.
+	-- The flashlight is carried in the right hand; tools use the left hand.
 	if id == "Flashlight" then
 		id = nil
 	end
@@ -339,7 +339,7 @@ function Equipment.refresh(player)
 	if not id or not character then
 		return
 	end
-	local hand = character:FindFirstChild("RightHand") or character:FindFirstChild("Right Arm")
+	local hand = character:FindFirstChild("LeftHand") or character:FindFirstChild("Left Arm")
 	if not hand then
 		return
 	end
@@ -371,9 +371,9 @@ function Equipment.heal(player)
 	end
 	local s = stateOf(player)
 	torchOf(player)
-	local brokenLeft = s.leftProp ~= nil and not attached(s.leftProp, character)
-	local missingLeft = s.leftProp == nil and Equipment.hasFlashlight(player)
-		and (character:FindFirstChild("LeftHand") or character:FindFirstChild("Left Arm")) ~= nil
+	local brokenLeft = s.torchProp ~= nil and not attached(s.torchProp, character)
+	local missingLeft = s.torchProp == nil and Equipment.hasFlashlight(player)
+		and (character:FindFirstChild("RightHand") or character:FindFirstChild("Right Arm")) ~= nil
 	local brokenRight = s.prop ~= nil and not attached(s.prop, character)
 	if brokenLeft or missingLeft or brokenRight then
 		if brokenRight then

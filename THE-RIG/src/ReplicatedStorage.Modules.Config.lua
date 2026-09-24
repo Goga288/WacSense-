@@ -2,7 +2,7 @@
 -- Shared tuning values. Safe to read on the client: contains no secrets.
 local Config = {}
 
-Config.Version = "0.15.0"
+Config.Version = "0.16.0"
 Config.GameName = "THE RIG: 100 DAYS"
 
 -- Time: one in-game day (24 h) lasts DaySeconds real seconds and starts at 06:00.
@@ -143,12 +143,12 @@ Config.Tiers = {
 -- The Peeker: waits behind a crate or a corner somewhere behind you and watches. Turn
 -- round and look at it and it is gone. For now it only watches.
 Config.Peeker = {
-	chance = 0.55, -- chance it comes on a given night (from night 1)
-	evening = 0.25, -- chance it already comes in the evening
+	chance = 0.42, -- chance it comes on a given night (from night 1)
+	evening = 0.15, -- chance it already comes in the evening
 	distance = { 18, 55 }, -- how far behind you it waits
 	stare = 0.6, -- seconds you can look at it before it is gone
-	visits = 7, -- appearances per night
-	gap = { 14, 35 }, -- seconds between appearances
+	visits = 4, -- appearances per night
+	gap = { 40, 75 }, -- seconds between appearances
 	approach = 14, -- walk closer than this and it is gone
 }
 

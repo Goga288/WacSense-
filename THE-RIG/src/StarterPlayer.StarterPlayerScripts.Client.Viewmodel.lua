@@ -50,11 +50,11 @@ local function buildItems(model)
 		table.insert(items[side], { part = p, id = id, offset = offset })
 	end
 	local body = newPart(model, "TorchBody", Vector3.new(1.15, 0.32, 0.32), Color3.fromRGB(44, 50, 56), Enum.Material.Metal, Enum.PartType.Cylinder)
-	add("Left", "Flashlight", body, CFrame.new(0, -0.35, -0.12) * cyl)
+	add("Right", "Flashlight", body, CFrame.new(0, -0.35, -0.12) * cyl)
 	local head = newPart(model, "TorchHead", Vector3.new(0.32, 0.46, 0.46), Color3.fromRGB(78, 86, 92), Enum.Material.Metal, Enum.PartType.Cylinder)
-	add("Left", "Flashlight", head, CFrame.new(0, -0.98, -0.12) * cyl)
+	add("Right", "Flashlight", head, CFrame.new(0, -0.98, -0.12) * cyl)
 	local lens = newPart(model, "Lens", Vector3.new(0.04, 0.4, 0.4), Color3.fromRGB(255, 244, 210), Enum.Material.Neon, Enum.PartType.Cylinder)
-	add("Left", "Flashlight", lens, CFrame.new(0, -1.16, -0.12) * cyl)
+	add("Right", "Flashlight", lens, CFrame.new(0, -1.16, -0.12) * cyl)
 	-- The glow sits on a proxy in the client-only LocalFX folder (lights under the Camera
 	-- do not reliably light anything); render() keeps it on the lens.
 	if not View.glow or not View.glow.Parent then
@@ -71,11 +71,11 @@ local function buildItems(model)
 	end
 	View.lens = lens
 	local bar = newPart(model, "CrowbarShaft", Vector3.new(0.14, 2.6, 0.14), Color3.fromRGB(160, 40, 34))
-	add("Right", "Crowbar", bar, CFrame.new(0, -0.9, -0.12))
+	add("Left", "Crowbar", bar, CFrame.new(0, -0.9, -0.12))
 	local hook = newPart(model, "CrowbarHook", Vector3.new(0.14, 0.14, 0.5), Color3.fromRGB(110, 116, 120))
-	add("Right", "Crowbar", hook, CFrame.new(0, -2.15, -0.3))
+	add("Left", "Crowbar", hook, CFrame.new(0, -2.15, -0.3))
 	local flare = newPart(model, "FlareStick", Vector3.new(0.26, 0.95, 0.26), Color3.fromRGB(215, 60, 42), Enum.Material.SmoothPlastic)
-	add("Right", "Flare", flare, CFrame.new(0, -0.45, -0.12))
+	add("Left", "Flare", flare, CFrame.new(0, -0.45, -0.12))
 	return items
 end
 
@@ -275,7 +275,7 @@ function View.init(ctx)
 		View.dirty = true
 	end)
 	task.delay(8, function()
-		C.HUD.toast("Left hand holds your flashlight (F turns it on). Right hand appears with the crowbar or a flare (1-6). V switches first / third person.", "info")
+		C.HUD.toast("Right hand holds your flashlight (F turns it on). Left hand appears with the crowbar or a flare (1-6). V switches first / third person.", "info")
 	end)
 	RunService:BindToRenderStep("RigHands", Enum.RenderPriority.Camera.Value + 5, function(dt)
 		local ok, err = pcall(View.render, dt)
@@ -317,7 +317,7 @@ local function setShown(side, shown, equipped)
 		end
 	end
 	for _, it in ipairs(View.items[side]) do
-		local want = shown and (side == "Left" or it.id == equipped)
+		local want = shown and (side == "Right" or it.id == equipped)
 		it.part.Transparency = want and 0 or 1
 	end
 end
@@ -351,12 +351,12 @@ function View.render(dt)
 	local equipped = player:GetAttribute("Equipped") or ""
 	local lit = C.Flashlight and C.Flashlight.isOn and C.Flashlight.isOn() or torchOn(character)
 	local want = {
-		Left = show and hasFlashlight(player),
-		Right = show and (equipped == "Crowbar" or equipped == "Flare"),
+		Right = show and hasFlashlight(player),
+		Left = show and (equipped == "Crowbar" or equipped == "Flare"),
 	}
 
 	local delta = Input:GetMouseDelta()
-	View.sway = View.sway:Lerp(Vector2.new(math.clamp(delta.X, -20, 20), math.clamp(delta.Y, -20, 20)), math.min(dt * 10, 1))
+	View.sway = View.sway:Lerp(Vector2.new(math.clamp(delta.X, -20, 20), math.clamp(delta.Y, -20, 20)), (1 - math.exp(-dt * 10)))
 	local speed = Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z).Magnitude
 	View.phase += dt * (1.6 + speed * 0.42)
 	View.swing = math.max(0, View.swing - dt)
@@ -368,7 +368,7 @@ function View.render(dt)
 
 	for side, sign in pairs({ Left = -1, Right = 1 }) do
 		local a = View.amount[side]
-		a += ((want[side] and 1 or 0) - a) * math.min(dt * 11, 1)
+		a += ((want[side] and 1 or 0) - a) * (1 - math.exp(-dt * 11))
 		View.amount[side] = a
 		local shown = a > 0.04
 		anyShown = anyShown or shown
@@ -378,11 +378,11 @@ function View.render(dt)
 			local y = -0.66 - (1 - a) * 1.8 + math.abs(math.cos(View.phase)) * bob + breathe - (running and 0.12 or 0) + View.sway.Y * 0.0016
 			local z = -1.35
 			local pitch, yaw = 0.3, -sign * 0.14
-			if side == "Right" and View.swing > 0 then
+			if side == "Left" and View.swing > 0 then
 				local t = 1 - View.swing / 0.35
 				local arc = math.sin(t * math.pi)
 				y += arc * 0.35
-				x -= arc * 0.35
+				x += arc * 0.35
 				z -= arc * 0.25
 				pitch += arc * 0.9 - t * 0.6
 			end
@@ -405,7 +405,7 @@ function View.render(dt)
 		end
 	end
 
-	View.glow.Enabled = want.Left and lit and View.amount.Left > 0.5
+	View.glow.Enabled = want.Right and lit and View.amount.Right > 0.5
 	if View.lens and View.glow.Parent then
 		View.glow.Parent.CFrame = View.lens.CFrame
 	end

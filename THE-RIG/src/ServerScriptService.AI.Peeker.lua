@@ -215,7 +215,7 @@ function Peeker.summon(force)
 	Peeker.want = true
 	Peeker.visits = 0
 	Peeker.target = nil
-	Peeker.nextAt = os.clock() + (force and 1 or math.random(8, 25))
+	Peeker.nextAt = os.clock() + (force and 1 or math.random(20, 40))
 	return true
 end
 
@@ -261,8 +261,7 @@ function Peeker.step(now, dt)
 	-- Unnoticed for long, or left far behind: it moves to be behind you again.
 	if now - Peeker.since > 22 or dist > P.distance[2] * 1.8 then
 		hide(now)
-		Peeker.relocating = true
-		Peeker.nextAt = now + 2
+		Peeker.relocating = false -- relocation respects the full cooldown and visit budget
 	end
 end
 
