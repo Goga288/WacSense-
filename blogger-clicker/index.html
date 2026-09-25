@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>Блогер-миллионер: кликер</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Yandex Games SDK: на платформе отдаётся по относительному пути /sdk.js -->
+  <script src="/sdk.js"></script>
+</head>
+<body>
+  <div id="app">
+    <header id="top">
+      <div class="money"><span class="coin">🪙</span><b id="money">0</b></div>
+      <div class="rates">
+        <span id="perSec">0 / сек</span>
+        <span id="perTap">+1 за тап</span>
+      </div>
+      <div class="subs">👥 <b id="subs">0</b> подписчиков · <span id="rank">Новичок</span></div>
+      <div class="progress"><div id="goalBar"></div><span id="goalText"></span></div>
+      <button id="btnSound" class="icon" title="Звук">🔊</button>
+    </header>
+
+    <main id="stage">
+      <div id="bgItems"></div>
+      <div id="boostBadge" class="hidden"></div>
+      <div id="blogger" aria-label="Тапай по блогеру!"></div>
+      <div id="tapHint">Тапай по блогеру!</div>
+      <div id="floaters"></div>
+      <button id="btnAd" class="ad">📺 ×2 доход на 2 минуты</button>
+    </main>
+
+    <nav id="tabs">
+      <button data-tab="tap" class="sel">⚡ Прокачка</button>
+      <button data-tab="idle">💸 Доход</button>
+      <button data-tab="lux">🏎️ Роскошь</button>
+      <button data-tab="cups">🏆 Кубки</button>
+      <button data-tab="me">😎 Блогер</button>
+    </nav>
+    <section id="shop">
+      <div class="buyMode"><button id="btnX1" class="sel">×1</button><button id="btnX10">×10</button></div>
+      <div id="list"></div>
+    </section>
+  </div>
+
+  <div id="hype" class="hidden">🌟</div>
+
+  <div id="modal" class="hidden">
+    <div class="box">
+      <div id="modalBody"></div>
+      <div id="modalBtns"></div>
+    </div>
+  </div>
+  <canvas id="confetti"></canvas>
+
+  <script src="game.js"></script>
+</body>
+</html>
