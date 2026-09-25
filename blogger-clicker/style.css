@@ -100,3 +100,14 @@ button.ad:disabled { background: #6b7280; box-shadow: 0 4px 0 #374151; }
   .money { font-size: 40px; }
   #shop { height: 38%; }
 }
+
+/* ---------- вкладка «Шашки» ---------- */
+.race-head { text-align: center; margin: 2px 0 10px; }
+.race-head b { font-size: 17px; }
+.race-head .ds { font-size: 12px; opacity: 0.85; }
+.opts { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin: 6px 0 10px; }
+.opts button { background: rgba(255, 255, 255, 0.14); padding: 6px 12px; border-radius: 10px; font-weight: 700; font-size: 13px; }
+.opts button.sel { background: #ffd23f; color: #3a1d8a; }
+.swatch { width: 30px; height: 30px; border-radius: 50%; border: 3px solid transparent; padding: 0 !important; }
+.swatch.sel { border-color: #fff; }
+#tabs button { font-size: 12px; }

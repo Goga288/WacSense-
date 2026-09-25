@@ -95,13 +95,23 @@
     [100000000, 'Мультимиллионер'], [1000000000, 'Миллиардер'], [1000000000000, 'Легенда'],
   ];
   const LUX_BONUS = 0.08, CUP_BONUS = 0.15;
+  // Машины для режима «Шашки»: седан есть сразу, остальные — после покупки в «Роскоши».
+  const RACE_CARS = [
+    { id: 'sedan', icon: '🚗', name: 'Седан', need: null, desc: 'До 180 км/ч' },
+    { id: 'sport', icon: '🏎️', name: 'Спорткар', need: 'car', desc: 'До 290 км/ч, бешеный разгон' },
+    { id: 'limo', icon: '🚘', name: 'Лимузин', need: 'limo', desc: 'До 200 км/ч, длинный как автобус' },
+  ];
+  const PAINTS = [0xc0392b, 0x1f2a36, 0xf2f2f0, 0x1d5fbf, 0xf1c40f, 0x27ae60, 0x8e44ad, 0xff6fa8];
+  const TIMES = [['day', '☀️ День'], ['sunset', '🌇 Закат'], ['night', '🌙 Ночь']];
 
   // ---------- Состояние ----------
-  const fresh = () => ({ money: 0, total: 0, subs: 0, char: -1, ups: {}, lux: {}, cups: 0, taps: 0, last: Date.now(), boostUntil: 0, sound: true });
+  const fresh = () => ({ money: 0, total: 0, subs: 0, char: -1, ups: {}, lux: {}, cups: 0, taps: 0, last: Date.now(), boostUntil: 0, sound: true,
+    race: { car: 'sedan', paint: 0, time: 'day', best: 0, runs: 0 } });
   let S = fresh();
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (raw) S = Object.assign(fresh(), JSON.parse(raw));
+    if (!S.race) S.race = fresh().race;
   } catch (e) { /* ignore */ }
 
   const lvl = (id) => S.ups[id] || 0;
@@ -306,6 +316,18 @@
         if (S.lux[x.id]) html += itemHTML(x.icon, x.name, `+${LUX_BONUS * 100}% к доходу`, '', `<div class="ownedMark">✅ Твоё!</div>`, 'owned');
         else html += itemHTML(x.icon, x.name, `+${LUX_BONUS * 100}% к доходу`, '', `<button class="buy" data-lux="${x.id}" ${S.money < x.cost ? 'disabled' : ''}>🪙 ${fmt(x.cost)}</button>`);
       }
+    } else if (tab === 'race') {
+      $('shop').querySelector('.buyMode').style.display = 'none';
+      const R = S.race;
+      html += `<div class="race-head"><b>🚗 Шашки по городу</b><div class="ds">Лавируй в потоке на скорости! Проезжай впритирку — больше монет.<br>Рекорд: ${(R.best / 1000).toFixed(2).replace('.', ',')} км · Заездов: ${R.runs}</div></div>`;
+      html += `<div class="opts">${TIMES.map(([id, n]) => `<button data-time="${id}" class="${R.time === id ? 'sel' : ''}">${n}</button>`).join('')}</div>`;
+      html += `<div class="opts">${PAINTS.map((c, i) => `<button class="swatch ${R.paint === i ? 'sel' : ''}" data-paint="${i}" style="background:#${c.toString(16).padStart(6, '0')}"></button>`).join('')}</div>`;
+      for (const c of RACE_CARS) {
+        const open = !c.need || S.lux[c.need];
+        const needName = c.need ? LUX.find((l) => l.id === c.need).name : '';
+        html += itemHTML(open ? c.icon : '🔒', c.name, open ? c.desc : `Купи «${needName}» во вкладке «Роскошь»`, '',
+          open ? `<button class="buy" data-race="${c.id}">▶ Поехать</button>` : `<button class="buy" disabled>🔒</button>`, open ? '' : 'locked');
+      }
     } else if (tab === 'cups') {
       $('shop').querySelector('.buyMode').style.display = 'none';
       html += `<div class="ds" style="text-align:center;margin-bottom:8px">Каждый кубок даёт +${CUP_BONUS * 100}% ко всему доходу</div>`;
@@ -483,6 +505,9 @@
       if (b.dataset.buy) buyUp(b.dataset.buy);
       else if (b.dataset.lux) buyLux(b.dataset.lux);
       else if (b.dataset.act === 'chars') chooseChar(false);
+      else if (b.dataset.time) { S.race.time = b.dataset.time; renderShop(); save(); }
+      else if (b.dataset.paint) { S.race.paint = +b.dataset.paint; renderShop(); save(); }
+      else if (b.dataset.race) startRace(b.dataset.race);
       else if (b.dataset.act === 'reset') {
         modal('<h2>Начать заново?</h2><p>Все деньги, покупки и кубки пропадут.</p>', [
           ['Да, сбросить', () => { const snd = S.sound; S = fresh(); S.sound = snd; save(); renderAll(); chooseChar(true); }],
@@ -517,6 +542,43 @@
     });
     window.addEventListener('pagehide', save);
     document.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  // ---------- Режим «Шашки» (3D-гонка подгружается по требованию) ----------
+  function loadRacer() {
+    return new Promise((res, rej) => {
+      if (window.Racer) { res(); return; }
+      const sc = document.createElement('script');
+      sc.src = 'racer.js';
+      sc.onload = () => res();
+      sc.onerror = () => rej(new Error('racer.js не найден'));
+      document.body.appendChild(sc);
+    });
+  }
+
+  function startRace(car) {
+    const btn = document.querySelector(`[data-race="${car}"]`);
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Загрузка…'; }
+    loadRacer().then(() => {
+      S.race.car = car;
+      const scale = Math.max(1, perTap() * 0.3 + perSec() * 0.05);
+      window.Racer.startRace({
+        car, color: PAINTS[S.race.paint], time: S.race.time, sound: S.sound,
+        mobile: matchMedia('(pointer: coarse)').matches, coinScale: scale,
+        onReward: (coins) => { S.money += coins; S.total += coins; save(); },
+        rewarded: (cb) => showRewarded(cb),
+        onClose: (r) => {
+          S.race.runs++;
+          if (r && r.dist > S.race.best) S.race.best = r.dist;
+          save();
+          renderAll();
+          showFullscreen();
+        },
+      });
+    }).catch((e) => {
+      modal(`<h2>Не получилось загрузить гонку</h2><p>${e.message}</p>`, [['Ок', null]]);
+      renderShop();
+    });
   }
 
   function offlineEarnings() {
